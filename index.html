@@ -498,6 +498,11 @@ body.ocultar .chart-box{pointer-events:none}
 .calc{max-width:320px;margin:0 auto}.calc-ex{color:var(--muted);text-align:right;min-height:20px;font-size:14px;word-break:break-all}.calc-v{font-size:30px;font-weight:700;text-align:right;margin:4px 0 10px}
 .calc-k{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.calc-k .btn{justify-content:center;padding:14px 0;font-size:18px}
 .eye-btn{background:none;border:0;padding:4px 6px;cursor:pointer;color:var(--ink);display:inline-flex;align-items:center;border-radius:8px}.eye-btn:hover{background:var(--bg)}
+.comp-bar{display:flex;height:14px;border-radius:7px;overflow:hidden;margin:6px 0 12px;background:var(--grid)}.comp-bar span{display:block;height:100%}
+.comp-l{display:flex;flex-direction:column;gap:6px}.comp-it{display:grid;grid-template-columns:12px 1fr auto auto;gap:8px;align-items:center;font-size:13.5px}
+.comp-it i{width:10px;height:10px;border-radius:3px}.comp-p{min-width:42px;text-align:right}.comp-v{color:var(--muted);min-width:92px;text-align:right}
+.comp-tot{border-top:1px solid var(--border);padding-top:6px;font-weight:600}
+body.ocultar .comp-v{filter:blur(7px)}
 
 </style>
 <script src="config.js"></script>
@@ -1163,7 +1168,7 @@ function hbar(id, labels, data, color, fmt, opts={}){
   o.scales.y.grid={display:false}; o.scales.y.ticks={color:css('--ink-2'),font:{size:11},autoSkip:false,callback:function(v){return trunc(this.getLabelForValue(v));}};
   const tot=data.reduce((a,b)=>a+(b||0),0);
   o.plugins.tooltip.callbacks={label:c=>' '+fmt(c.raw)+(opts.share&&tot?` (${pct(c.raw/tot)})`:''), afterLabel:opts.tip?c=>opts.tip(c.dataIndex):c=>descOf(labels[c.dataIndex])};
-  o.plugins.lbl={fmt:fmt===moneyFmt?fmtK:v=>fmt(v,true)};
+  o.plugins.lbl={fmt:v=>(fmt===moneyFmt?fmtK(v):fmt(v,true))+(opts.share&&tot?' · '+pct(v/tot,0):'')};
   o.layout={padding:{right:60,top:4}};
   if(opts.filterKey||opts.onClick){ o.onClick=(e,els)=>{ if(!els[0]) return; const i=els[0].index; if(opts.onClick) setTimeout(()=>opts.onClick(i),0); else toggleFilter(opts.filterKey, labels[i]); }; o.onHover=(e,els)=>{ e.native.target.style.cursor=els.length?'pointer':'default'; }; }
   const box=document.getElementById(id); if(box&&opts.autoH!==false) box.parentElement.style.height=Math.max(180,labels.length*26+50)+'px';
@@ -1398,15 +1403,20 @@ const LBL={id:'lbl',afterDatasetsDraw(chart,args,opt){
     const meta=chart.getDatasetMeta(di); if(meta.hidden||ds.lblOff) return;
     meta.data.forEach((el,i)=>{
       const v=ds.data[i]; if(v==null||isNaN(v)||v===0) return;
-      const t=fmt(v), tw=ctx.measureText(t).width;
+      let t=fmt(v), tw=ctx.measureText(t).width;
+      // não coube: tenta versão curta (ex.: "14 mil") e fonte menor, para todas as barras terem rótulo
+      const cabe=(wmax)=>{ if(tw<=wmax) return true; const alts=money||(opt&&opt.money)?[t,Math.abs(v)>=1e3?Math.round(v/1e3)+' mil':String(Math.round(v)), Math.abs(v)>=1e3?Math.round(v/1e3)+'k':String(Math.round(v))]:[t]; 
+        for(const a of alts){ ctx.font='600 10.5px system-ui,-apple-system,"Segoe UI",sans-serif'; let w=ctx.measureText(a).width; if(w<=wmax){ t=a; tw=w; return true; } ctx.font='600 9px system-ui,-apple-system,"Segoe UI",sans-serif'; w=ctx.measureText(a).width; if(w<=wmax){ t=a; tw=w; return true; } }
+        ctx.font='600 10.5px system-ui,-apple-system,"Segoe UI",sans-serif'; return false; };
+      ctx.font='600 10.5px system-ui,-apple-system,"Segoe UI",sans-serif';
       if(type==='doughnut'||type==='pie'){ const ang=el.endAngle-el.startAngle; if(ang<0.28) return; const r=(el.innerRadius+el.outerRadius)/2, a=(el.startAngle+el.endAngle)/2; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(t,el.x+Math.cos(a)*r,el.y+Math.sin(a)*r); return; }
       if((ds.type||type)==='line'){ const nums=ds.data.map((x,j)=>x==null?null:+x); let last=-1, mx=-1, mn=-1; nums.forEach((x,j)=>{ if(x==null) return; last=j; if(mx<0||x>nums[mx]) mx=j; if(mn<0||x<nums[mn]) mn=j; }); if(!(opt&&opt.all) && i!==last && i!==mx && i!==mn) return; ctx.fillStyle=ink; ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillText(t,Math.min(Math.max(el.x,tw/2+2),chart.width-tw/2-2),el.y-6); return; }
       if(horiz){ if(stack){ const w=Math.abs(el.x-el.base); if(w<tw+6) return; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(t,(el.x+el.base)/2,el.y); return; }
         ctx.fillStyle=ink; ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillText(t,Math.max(el.x,el.base)+4,el.y); return; }
       const top=Math.min(el.y,el.base), h=Math.abs(el.base-el.y), w=el.width;
-      if(stack){ if(h<14||w<tw+4) return; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(t,el.x,top+h/2); return; }
+      if(stack){ if(h<13||!cabe(w+2)) return; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(t,el.x,top+h/2); return; }
       ctx.fillStyle=ink;
-      if(w>=tw+3){ ctx.textAlign='center'; ctx.textBaseline=v<0?'top':'bottom'; ctx.fillText(t,el.x,v<0?Math.max(el.y,el.base)+3:top-3); }
+      if(cabe(w+8)){ ctx.textAlign='center'; ctx.textBaseline=v<0?'top':'bottom'; ctx.fillText(t,el.x,v<0?Math.max(el.y,el.base)+3:top-3); }
     });
   });
   ctx.restore();
@@ -1673,7 +1683,7 @@ function renderFluxo(v, rows){
   const MP=fluxoModel(rr,'prev'), MR=fluxoModel(rr,'real');
   const m=FX_M||refMonth(); FX_M=m;
   const minP=Math.min(...MP.map(x=>x.fim));
-  v.innerHTML = pageHead('Fluxo de caixa', `Os dois quadros seguem as abas DASHBOARD FLUXO GERAL (tudo que está lançado: VALOR A RECEBER / VALOR A PAGAR) e DASHBOARD PAGO (só o que já foi pago/recebido), somando pela coluna MÊS como o Excel. Saldo inicial de JAN: ${brl(STATE.saldoInicial)}. Clique num valor para ver os lançamentos.`, `<div style="display:flex;gap:6px">${expBtn('fluxo')}</div>`)
+  v.innerHTML = pageHead('Fluxo de caixa', `Fluxo mês a mês de tudo que está lançado (o que já foi pago e o que falta está na aba Pago × em aberto). Saldo inicial de JAN: ${brl(STATE.saldoInicial)}. Clique num valor para ver os lançamentos.`, `<div style="display:flex;gap:6px">${expBtn('fluxo')}</div>`)
   + (semFiltro?'':`<div class="warnbox">Há filtros ativos: os quadros mostram só o recorte filtrado e a conferência com o Excel fica desligada.</div>`)
   + `<div class="kpis">
       ${kpi('Saldo inicial do ano',brl(STATE.saldoInicial),'DASHBOARD FLUXO GERAL · JAN','gray')}
@@ -1684,13 +1694,13 @@ function renderFluxo(v, rows){
     </div>
     <div class="grid">
       ${card('c12','Fluxo geral — igual ao DASHBOARD FLUXO GERAL','Tudo que está lançado em ENTRADA e SAÍDA, pago ou em aberto',`<div class="twrap"><table id="tFluxoG"></table></div>`)}
-      ${card('c12','Fluxo pago — igual ao DASHBOARD PAGO','Só lançamentos com STATUS = PAGO',`<div class="twrap"><table id="tFluxoP"></table></div>`)}
+
       ${card('c6','Resultado mensal','Fluxo geral: receitas − despesas de cada mês (azul = sobrou, vermelho = faltou)',chartBox('chRes'))}
       ${card('c6','Pago × em aberto por mês','Despesas já pagas e o que ainda falta pagar',legendHTML([[series(2),'Despesas pagas'],[css('--axis'),'Ainda em aberto']])+chartBox('chRP'))}
       ${card('c12','Fluxo diário',`<span class="mini"><button class="btn small" id="fxPrev">◀</button> <b>${cap1(MESES_LONG[m-1])} de ${STATE.ano}</b> <button class="btn small" id="fxNext">▶</button></span>`,legendHTML([[series(1),'Receitas'],[series(2),'Despesas']])+chartBox('chDia','short')+`<h3 style="margin-top:14px">Saldo ao fim de cada dia</h3><div class="sub">Fluxo geral, a partir do saldo do início do mês</div>`+chartBox('chDiaS','short'))}
     </div>`;
   fluxoTable('tFluxoG',MP,rr,'prev',STATE.dashXL&&STATE.dashXL.geral,semFiltro);
-  fluxoTable('tFluxoP',MR,rr,'real',STATE.dashXL&&STATE.dashXL.pago&&Object.assign({},STATE.dashXL.pago,{acum:null}),semFiltro);
+  if($('#tFluxoP')) fluxoTable('tFluxoP',MR,rr,'real',STATE.dashXL&&STATE.dashXL.pago&&Object.assign({},STATE.dashXL.pago,{acum:null}),semFiltro);
   bindExports({fluxo:()=>exportSheets('fluxo_de_caixa',[['Fluxo geral',MP.map((x,i)=>({'Mês':MESES_C[i],'Saldo inicial':x.ini,'Receitas':x.r,'Despesas':x.d,'Resultado mensal':x.res,'Resultado acumulado':x.fim}))],['Fluxo pago',MR.map((x,i)=>({'Mês':MESES_C[i],'Saldo inicial':x.ini,'Receitas':x.r,'Despesas':x.d,'Resultado mensal':x.res,'Resultado acumulado':x.fim}))]])});
   vbar('chRes',MESES_C,[barDS('Resultado',MP.map(x=>x.res),MP.map(x=>x.res<0?series(8):series(1)),{borderSkipped:false})],{money:true});
   vbar('chRP',MESES_C,[stackDS('Pagas',MR.map(x=>x.d),series(2)),stackDS('Em aberto',MP.map((x,i)=>Math.max(0,x.d-MR[i].d)),css('--axis'))],{money:true,stacked:true});
@@ -2356,7 +2366,7 @@ function renderCarro(v, rows){
     </div>
     <div class="grid">
       ${card('c8','Custo do carro por mês','Empilhado por fonte',legendHTML(fontes.map((f,i)=>[series(i%8+1),f]))+chartBox('chCaM'))}
-      ${card('c4','Por tipo de gasto','Combustível, lavagem, manutenção, documentos…',chartBox('chCaS'))}
+      ${card('c4','Por tipo de gasto','Quanto cada tipo pesa no custo do carro',composicaoHTML(cats.map(x=>[x[0],x[1]]),tot))}
       ${card('c6','Preço do litro','Abastecimentos da aba Carro com valor do litro',chartBox('chCaP'))}
       ${card('c6','Km rodados por mês','Diferença do hodômetro entre abastecimentos (aba Carro)',chartBox('chCaK'))}
       ${card('c12','Todos os gastos do carro','Fonte, linha de origem e o que foi ignorado por repetição',`<div class="twrap"><table id="tCa"></table></div>`)}
@@ -2364,7 +2374,7 @@ function renderCarro(v, rows){
   vbar('chCaM',MESES_C,fontes.map((f,i)=>stackDS(f,MESES_C.map((_,m)=>sum(C.filter(x=>x.fonte===f&&x.mes===m+1),x=>x.valor)),series(i%8+1))),{money:true,stacked:true,footer:its=>'Total: '+brl(sum(its,c=>c.raw)),onClick:i=>{ const its=C.filter(x=>x.mes===i+1); modal(`<button class="btn small x" data-close>✕</button><h2>Carro · ${MESES_LONG[i]}</h2><div class="twrap" style="margin-top:8px"><table id="tCaMod"></table></div>`,()=>table('tCaMod',[{h:'Data',v:x=>x.data,f:fmtDateS},{h:'Fonte',v:x=>x.fonte},{h:'Descrição',v:x=>x.desc,cls:'wrap'},{h:'Tipo',v:x=>x.cat},{h:'Valor',v:x=>x.valor,num:1,f:brl}],its)); }});
   if($('#caModo')) $('#caModo').onclick=async()=>{ const op=await escolha('Combustível: de onde vem o custo', `<p>Para não somar o mesmo abastecimento duas vezes, o combustível é contado por uma fonte só. As outras continuam valendo para km, consumo e preço do litro.</p><p>Aba Carro (abastecimentos): <b>${brl(I.combAba)}</b><br>Lançamentos (saídas e cartões): <b>${brl(I.combLanc)}</b></p>`, [['aba','Usar a aba Carro'],['lanc','Usar os lançamentos']]); if(!op) return; put('cfg',Object.assign({},cfg(),{carroComb:op})); await commit('Ok ✓'); };
   if($('#caNovo')) $('#caNovo').onclick=()=>{ const cs=live('cats').find(c=>/combust/.test(norm(c.sub))); abrirLancar({t:'D', status:'PAGO', cat:cs?cs.cat:'AUTOMÓVEL', sub:cs?cs.sub:'COMBUSTÍVEL', desc:'Combustível'}); };
-  hbar('chCaS',cats.map(x=>x[0]),cats.map(x=>x[1]),series(4),moneyFmt,{share:true,empty:'Nenhum gasto de carro encontrado.'});
+
   const AP=A.filter(c=>c.preco);
   line('chCaP',AP.map(c=>fmtDateS(c.data)),[lineDS('R$/litro',AP.map(c=>c.preco),series(4))],{fmt:x=>'R$ '+x.toFixed(2).replace('.',','),tipFmt:x=>brl(x),lblFmt:x=>x.toFixed(2).replace('.',','),zero:false,empty:'A aba Carro não tem o valor do litro preenchido.'});
   const kmM=Array(12).fill(0); for(let i=1;i<A.length;i++){ if(A[i].hod&&A[i-1].hod) kmM[A[i].data.getMonth()]+=A[i].hod-A[i-1].hod; }
@@ -3555,6 +3565,8 @@ async function gOCR(dataURL){
    Assim todas as análises continuam iguais, agora alimentadas pelo app.
    ===================================================================== */
 let ANO = +lsGet('fin-ano', String(new Date().getFullYear()));
+// virou o ano: o app passa a mostrar o ano novo sozinho (os anos anteriores continuam guardados e escolhíveis)
+(()=>{ const cur=new Date().getFullYear(), visto=+lsGet('fin-ano-visto','0'); if(visto && visto<cur){ ANO=cur; lsSet('fin-ano',String(cur)); } lsSet('fin-ano-visto',String(cur)); })();
 function anosDisponiveis(){
   const s=new Set([new Date().getFullYear(), ANO]);
   live('lanc').forEach(l=>{ if(l.data) s.add(+l.data.slice(0,4)); });
@@ -4175,6 +4187,11 @@ async function importarArquivo(f){
       <div class="fbtns"><button class="btn primary" id="impOk">Importar e substituir</button><button class="btn" data-close>Cancelar</button></div>`, root=>{
       $('#impOk').onclick=async()=>{ if(DB && (DB.lanc.length||DB.compras.length)) baixar(new Blob([JSON.stringify(DB)],{type:'application/json'}),'financas-antes-da-importacao-'+hojeISO()+'.json');
         // marca tudo o que existia como excluído (para a exclusão chegar no outro aparelho) e entra com os importados
+        // mantém o que não vem da planilha: senha, preferências, ícones e cores dos cartões/contas
+        const oc=live('cfg').find(r=>r.id==='cfg'), nc=D.cfg.find(r=>r.id==='cfg');
+        if(oc&&nc) Object.keys(oc).forEach(k=>{ if(!['id','u','by','del','saldoIni','anoBase','importadoDe','importadoEm'].includes(k)) nc[k]=oc[k]; });
+        const keep=(k,campos)=>D[k].forEach(r=>{ const o=live(k).find(x=>nkey(x.nome)===nkey(r.nome)); if(o) campos.forEach(c=>{ if(o[c]!=null&&o[c]!==''&&(r[c]==null||r[c]==='')) r[c]=o[c]; }); });
+        keep('cartoes',['logo','cor','bandeira','final','limite','venc','melhor']); keep('contas',['logo','cor']);
         const old=DB; DB=D; COLS.forEach(k=>(old[k]||[]).forEach(r=>{ if(!D[k].some(x=>x.id===r.id)) D[k].push(Object.assign({},r,{del:1,u:nowMs()})); }));
         ANO=rel.ano; lsSet('fin-ano',String(ANO)); closeModal(); await commit('Planilha importada ✓'); setTab('inicio'); };
     });
@@ -4613,12 +4630,17 @@ function exportar(fmt, sel, ano){
 const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', PDFW='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 async function textoPDF(buf){
   await loadScript(PDFJS); pdfjsLib.GlobalWorkerOptions.workerSrc=PDFW;
-  const doc=await pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise; const linhas=[];
+  const task=pdfjsLib.getDocument({data:new Uint8Array(buf)});
+  // fatura protegida por senha (alguns bancos usam parte do CPF)
+  task.onPassword=(atualiza,motivo)=>{ const s=prompt(motivo===2?'Senha errada. Digite a senha do PDF:':'Este PDF tem senha (alguns bancos usam os primeiros dígitos do CPF). Digite a senha do PDF:'); if(s==null) task.destroy(); else atualiza(s); };
+  const doc=await task.promise; const linhas=[];
   for(let n=1;n<=doc.numPages;n++){ const pg=await doc.getPage(n); const tc=await pg.getTextContent();
-    const its=tc.items.filter(i=>i.str&&i.str.trim()).map(i=>({x:i.transform[4], y:i.transform[5], s:i.str}));
-    its.sort((a,b)=>b.y-a.y||a.x-b.x); const grupos=[];
-    its.forEach(i=>{ const g=grupos.find(g=>Math.abs(g.y-i.y)<=3); if(g) g.its.push(i); else grupos.push({y:i.y,its:[i]}); });
-    grupos.sort((a,b)=>b.y-a.y).forEach(g=>linhas.push(g.its.sort((a,b)=>a.x-b.x).map(i=>i.s.trim()).join('  '))); }
+    const its=tc.items.filter(i=>i.str!=null&&i.str!=='').map(i=>({x:i.transform[4], y:i.transform[5], w:i.width||0, h:Math.abs(i.transform[3])||Math.abs(i.height)||8, s:i.str}));
+    const grupos=[];
+    its.forEach(i=>{ const g=grupos.find(g=>Math.abs(g.y-i.y)<=Math.max(2.5,Math.min(g.h,i.h)*0.45)); if(g) g.its.push(i); else grupos.push({y:i.y,h:i.h,its:[i]}); });
+    grupos.sort((a,b)=>b.y-a.y).forEach(g=>{ const a=g.its.sort((p,q)=>p.x-q.x); let t='', fim=null;
+      a.forEach(i=>{ if(fim!=null){ const gap=i.x-fim; if(gap>i.h*1.2) t+='  '; else if(gap>i.h*0.18 && !/\s$/.test(t) && !/^\s/.test(i.s)) t+=' '; } t+=i.s; fim=i.x+i.w; });
+      t=t.replace(/\s+$/,''); if(t.trim()) linhas.push(t.trim()); }); }
   return linhas;
 }
 const MES3=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
@@ -4663,12 +4685,21 @@ async function lerFaturaPDF(file){
   r.texto=L; return r;
 }
 
+/* ---------- composição em % (ex.: custo do carro por tipo) ---------- */
+function composicaoHTML(itens, total){
+  itens=itens.filter(x=>x[1]>0); if(!itens.length||!(total>0)) return '<p class="note">Nenhum gasto encontrado.</p>';
+  const cor=i=>series(i%8+1);
+  return `<div class="comp-bar">${itens.map((x,i)=>`<span style="width:${x[1]/total*100}%;background:${cor(i)}" title="${esc(x[0])} · ${pct(x[1]/total,0)}"></span>`).join('')}</div>
+    <div class="comp-l">${itens.map((x,i)=>`<div class="comp-it"><i style="background:${cor(i)}"></i><span class="comp-n">${esc(x[0])}</span><b class="comp-p">${pct(x[1]/total,0)}</b><span class="comp-v num">${brl(x[1])}</span></div>`).join('')}
+    <div class="comp-it comp-tot"><i></i><span class="comp-n">Total</span><b class="comp-p">100%</b><span class="comp-v num">${brl(total)}</span></div></div>`;
+}
+
 /* =====================================================================
    INÍCIO DO APP: tela de entrada, login, abrir dados e navegação do celular
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.2.2';
+const APP_VER='1.2.4';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
