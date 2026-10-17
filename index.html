@@ -2318,17 +2318,27 @@ function renderCartoes(v, rows){
 /* =====================================================================
    CARRO — junta aba Carro, SAÍDA (inclusive OBS/descrição) e anotações dos cartões, sem contar duas vezes
    ===================================================================== */
-const CAR_RE=/automovel|combust|gasolin|etanol|abastec|posto|lavagem|lava.?jato|ipva|licenciamento|oficina|mecanic|pneu|estaciona|pedagio|carro/;
+const CAR_RE=/automovel|veiculo|combust|gasolin|etanol|abastec|posto|lavagem|lava.?jato|ipva|licenciamento|oficina|mecanic|pneu|estaciona|pedagio|carro|seguro auto|porto seguro|azul seguro|youse|hdi seguro|tokio marine|suhai/;
+/* tipo do gasto do carro a partir dos textos (seguro, IPVA, manutenção…) */
+function carroTipo(txt, padrao){ const n=norm(txt);
+  if(/seguro|porto seguro|youse|hdi|tokio|allianz|mapfre|suhai|liberty/.test(n)) return 'SEGURO DO CARRO';
+  if(/combust|gasolin|etanol|posto|abastec|diesel|\bgnv\b/.test(n)) return 'COMBUSTÍVEL';
+  if(/lavag|lava.?jato|lava car/.test(n)) return 'LAVAGEM DO CARRO';
+  if(/ipva|licenc|detran|multa|dpvat/.test(n)) return 'IPVA / DOCUMENTOS';
+  if(/presta|financiamento|consorcio/.test(n)) return 'PRESTAÇÃO CARRO';
+  if(/oficina|mecanic|revis|pneu|oleo|alinhamento|balanceamento|bateria|pecas|funilaria/.test(n)) return 'MANUTENÇÃO CARRO';
+  if(/estaciona|pedagio|zona azul|sem parar|conectcar|veloe/.test(n)) return 'ESTACIONAMENTO / PEDÁGIO';
+  return padrao||'AUTOMÓVEL'; }
 function carroItens(){
   const ano=STATE.ano, out=[];
   // 1) SAÍDA: plano/categoria/subcategoria de automóvel ou texto (descrição, OBS…) com palavras de carro
   STATE.lanc.filter(o=>o.t==='D'&&!(o.src&&o.src.k==='fatura')&&o.ano===ano).forEach(o=>{ const isCar=(o.kw&&o.kw.carro)||CAR_RE.test(norm([o.plano,o.cat,o.sub,o.ref].join(' '))); if(!isCar) return;
-    const cat=(o.kw&&o.kw.carro)?o.kw.cat:(/combust|gasolin|posto|abastec/.test(norm(o.sub+' '+o.ref+' '+o.desc))?'COMBUSTÍVEL':/lavag/.test(norm(o.sub+' '+o.ref+' '+o.desc))?'LAVAGEM DO CARRO':/ipva|licenc/.test(norm(o.sub+' '+o.ref))?'IPVA / DOCUMENTOS':o.sub||o.ref||'AUTOMÓVEL');
+    const cat=(o.kw&&o.kw.carro)?o.kw.cat:carroTipo([o.sub,o.ref,o.desc,o.cat,o.obs].join(' '),o.sub||o.ref||'AUTOMÓVEL');
     out.push({fonte:'SAÍDA',data:o.data,mes:o.mes,valor:o.valor,pago:o.pago,desc:o.nome+(o.obs?' · '+o.obs:''),cat,cartao:/cart|cr[eé]d/.test(norm(o.forma)),ref:o,linha:o.aba+' '+o.linha}); });
   // 2) Cartões: compras com texto de carro (lançamento, referente, anotações) — uma linha por parcela do mês
-  STATE.cartoes.forEach(c=>c.compras.forEach(p=>{ if(!(p.cls&&p.cls.carro)) return; p.meses.forEach((x,i)=>{ if(!x) return;
+  STATE.cartoes.forEach(c=>c.compras.forEach(p=>{ const txt=[p.lan,p.ref,p.cat,p.sub,p.nota].join(' '); if(!((p.cls&&p.cls.carro)||CAR_RE.test(norm(txt)))) return; const tipo=(p.cls&&p.cls.carro)?p.cls.cat:carroTipo(txt,p.sub||'AUTOMÓVEL'); p.meses.forEach((x,i)=>{ if(!x) return;
     const d=p.data&&p.data.getMonth()===i?p.data:new Date(ano,i,1);
-    out.push({fonte:'Cartão '+c.nome,data:d,mes:i+1,valor:x,pago:true,desc:[p.lan,p.ref,p.nota].filter(Boolean).join(' · '),cat:p.cls.cat,ref:p,linha:p.aba+' '+p.linha}); }); }));
+    out.push({fonte:'Cartão '+c.nome,data:d,mes:i+1,valor:x,pago:true,desc:[p.lan,p.ref,p.nota].filter(Boolean).join(' · '),cat:tipo,ref:p,linha:p.aba+' '+p.linha}); }); }));
   // 3) Aba Carro: abastecimentos (servem para km/consumo; no custo só entram se não estiverem na SAÍDA nem nos cartões)
   STATE.carro.filter(a=>a.data.getFullYear()===ano).forEach(a=>{ out.push({fonte:'Aba Carro',data:a.data,mes:a.data.getMonth()+1,valor:a.valor,pago:true,desc:[a.comb,a.posto].filter(Boolean).join(' · ')||'Abastecimento',cat:'COMBUSTÍVEL',ref:a,linha:'Carro '+(a.linha||'')}); });
   // duplicidades: mesmo valor (±R$ 0,05) e data a até 5 dias — a SAÍDA prevalece, depois o cartão
@@ -3610,7 +3620,7 @@ function dbToState(ano){
       const meses=MESES.map((_,i)=>+((p.parc||{})[ano+'-'+String(i+1).padStart(2,'0')]||0));
       const tot=sum(meses,x=>x); if(!tot) return;
       meses.forEach((x,i)=>card.meses[i]+=x);
-      card.compras.push({cartao:c.nome, final:c.final||'', data:parseISO(p.data), lan:p.desc||'', forma:p.forma||'', ref:p.ref||p.sub||'', valorCompra:+p.valor||0, parcelas:+p.n||0, valorParcela:p.forma==='Parcelado'&&p.n?Math.round(p.valor/p.n*100)/100:+p.valor||0, meses, total:tot, nota:[p.cat,p.sub,p.obs].filter(Boolean).join(' · '), aba:'', linha:'', src:{k:'compra',id:p.id}});
+      card.compras.push({cartao:c.nome, final:c.final||'', data:parseISO(p.data), lan:p.desc||'', forma:p.forma||'', ref:p.ref||p.sub||'', valorCompra:+p.valor||0, parcelas:+p.n||0, valorParcela:p.forma==='Parcelado'&&p.n?Math.round(p.valor/p.n*100)/100:+p.valor||0, meses, total:tot, nota:[p.cat,p.sub,p.obs].filter(Boolean).join(' · '), cat:p.cat||'', sub:p.sub||'', aba:'', linha:'', src:{k:'compra',id:p.id}});
     });
     S.cartoes.push(card);
     S.cadCart.push({cartao:c.nome, aba:c.nome, ref:refFatura(c), limite:+c.limite||0, venc:+c.venc||0, melhor:+c.melhor||0, conta:c.conta||'', ativo:c.ativo!==false});
@@ -4699,7 +4709,7 @@ function composicaoHTML(itens, total){
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.2.4';
+const APP_VER='1.2.5';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
