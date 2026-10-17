@@ -4155,7 +4155,7 @@ function renderConfig(v){
       <label class="ckl"><input type="checkbox" id="cfSemContas" ${semContas()?'checked':''}> Não usar contas bancárias nem saldos (esconde os campos de conta e a aba Contas bancárias)</label>
       <label class="ckl"><input type="checkbox" id="cfOcultaIni" ${lsGet('fin-ocultar-ini','1')==='1'?'checked':''}> Abrir o app com os valores ocultos (toque no olho no topo para mostrar) — vale para este aparelho</label>
       <label class="ckl"><input type="checkbox" id="cfComp" ${cfg().comprovante!==false?'checked':''}> Guardar a foto da nota como comprovante do lançamento</label>
-      <label class="ckl"><input type="checkbox" id="cfOcr" ${cfg().ocr!==false?'checked':''}> Ler a nota automaticamente ao tirar a foto (valor, data e estabelecimento)</label>
+      <label class="ckl"><input type="checkbox" id="cfOcr" ${cfg().ocr!==false?'checked':''}> Ler a nota automaticamente ao tirar a foto (valor, data e estabelecimento) — a leitura é feita pela sua própria conta do Google</label>
       <div class="fbtns" style="margin-top:14px"><button class="btn danger" id="cfSairTudo">⏻ Sair do sistema neste aparelho</button></div>
       <p class="note">Sair apaga a cópia guardada neste aparelho (os dados continuam no Drive). Para voltar: Entrar com Google e digitar a sua senha.</p></div>
     <div class="card c6 frm"><h3>Ano exibido nos painéis</h3><div class="fbtns"><select id="cfAno">${opt(anosDisponiveis().map(String),String(ANO))}</select></div>
@@ -4458,7 +4458,8 @@ async function lerNota(src){
     try{ if(!tokenOk()) await gLogin(''); const img=await fotoParaOCR(src); const txt=await gOCR(img); const r=interpretarNota(txt||''); r.fonte='Google'; return r; }
     catch(e){ console.warn('OCR Google falhou, tentando no aparelho',e); }
   }
-  // 2º: leitura no próprio aparelho (Tesseract)
+  // 2º: leitura no próprio aparelho (Tesseract, baixado de site externo) — só se ligada em Configurações
+  if(cfg().ocrAparelho!==true) throw new Error(MODE.tipo==='google'?'sem conexão com o Google agora':'a leitura usa a conta do Google');
   await loadScript(TESS);
   if(!OCRW){ OCRW = await Tesseract.createWorker('por', 1, {workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js', corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1', langPath:'https://tessdata.projectnaptha.com/4.0.0'});
     try{ await OCRW.setParameters({tessedit_pageseg_mode:'4', preserve_interword_spaces:'1'}); }catch(e){} }
@@ -4647,7 +4648,8 @@ function exportar(fmt, sel, ano){
 }
 
 /* ---------- fatura em PDF (Mercado Pago, PicPay, Nubank, Itaú…): lê o texto e monta as linhas ---------- */
-const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', PDFW='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+// leitor de PDF (pdf.js 3.11.174, Apache 2.0) publicado junto com o app — não depende de site externo
+const PDFJS='pdf.min.js', PDFW='pdf.worker.min.js';
 async function textoPDF(buf){
   await loadScript(PDFJS); pdfjsLib.GlobalWorkerOptions.workerSrc=PDFW;
   const task=pdfjsLib.getDocument({data:new Uint8Array(buf)});
@@ -4832,7 +4834,7 @@ TABS.splice(TABS.findIndex(t=>t.id==='orcamento'),0,{id:'planejar',g:'gastos',ic
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.3.1';
+const APP_VER='1.3.2';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
