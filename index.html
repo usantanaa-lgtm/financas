@@ -503,6 +503,9 @@ body.ocultar .chart-box{pointer-events:none}
 .comp-it i{width:10px;height:10px;border-radius:3px}.comp-p{min-width:42px;text-align:right}.comp-v{color:var(--muted);min-width:92px;text-align:right}
 .comp-tot{border-top:1px solid var(--border);padding-top:6px;font-weight:600}
 body.ocultar .comp-v{filter:blur(7px)}
+.pl-t input{border:1px solid var(--border);border-radius:7px;padding:6px 8px;background:var(--surface);font-size:14px}
+.pl-t .pl-nome{width:100%;min-width:150px;font-weight:600}.pl-t .pl-v{width:110px;text-align:right}
+body.ocultar .pl-t .pl-v{filter:blur(6px)}body.ocultar .pl-t .pl-v:focus{filter:none}
 
 </style>
 <script src="config.js"></script>
@@ -1590,6 +1593,7 @@ function renderInicio(v, rows){
       ${kpi('Saldo atual',`<span class="${moneyCls(saldoAtual())}">${brl(saldoAtual())}</span>`,'Saldo inicial + tudo que foi pago/recebido','blue','data-go="fluxo"')}
       ${kpi('Resultado de '+MESES_LONG[m-1],`<span class="${rr-dd<0?'st-crit':'st-good'}">${brl(rr-dd)}</span>`,`Recebido ${brl0(rr)} · pago ${brl0(dd)}`,rr-dd<0?'red':'green','data-go="painel"')}
       ${(()=>{ const fp=sum(mr.filter(o=>o.t==='D'&&!o.pago),o=>o.valor), fr=sum(mr.filter(o=>o.t==='R'&&!o.pago),o=>o.valor); return kpi('Falta pagar em '+MESES_LONG[m-1],brl(fp),`Falta receber ${brl0(fr)} · sobra prevista ${brl0(rr+fr-dd-fp)}`,'amber','data-go="pagoaberto"'); })()}
+      ${(()=>{ const a=STATE.app&&typeof plAlertas==='function'?plAlertas():null; if(!a) return ''; return kpi('Planejamento do mês',`<span class="${a.acima.length?'st-crit':'st-good'}">${a.acima.length?a.acima.length+' acima':'✓ dentro'}</span>`,a.acima.length?a.acima.slice(0,3).map(x=>esc(x.n)).join(', '):'Todas as categorias dentro do combinado','purple','data-go="planejar"'); })()}
       ${kpi('Contas atrasadas',`<span class="${at.length?'st-crit':''}">${at.length}</span>`,at.length?brl(sum(at,o=>o.valor)):'✓ Nenhuma','red','data-go="agenda"')}
       ${kpi('Vencem em 7 dias',sete.length,brl(sum(sete,o=>o.valor)),'amber','data-go="agenda"')}
       ${kpi('Saúde financeira',H.score==null?'—':`${H.score}<small>/100</small>`,H.label,'purple','data-go="saude"')}
@@ -3297,7 +3301,7 @@ const fmtAt = at => at ? new Date(at).toLocaleString('pt-BR',{dateStyle:'short',
    - Cópia local no IndexedDB deste aparelho: o app abre e lança mesmo sem internet.
    ===================================================================== */
 const DB_VER = 1;
-const COLS = ['contas','cartoes','cats','lanc','compras','faturas','pend','budget','prev','carro','listas','cfg'];
+const COLS = ['contas','cartoes','cats','lanc','compras','faturas','pend','budget','prev','carro','listas','cfg','planos'];
 let DB = null;          // dados atuais
 let ME = {email:'', nome:''};
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -4202,7 +4206,7 @@ async function importarArquivo(f){
         if(oc&&nc) Object.keys(oc).forEach(k=>{ if(!['id','u','by','del','saldoIni','anoBase','importadoDe','importadoEm'].includes(k)) nc[k]=oc[k]; });
         const keep=(k,campos)=>D[k].forEach(r=>{ const o=live(k).find(x=>nkey(x.nome)===nkey(r.nome)); if(o) campos.forEach(c=>{ if(o[c]!=null&&o[c]!==''&&(r[c]==null||r[c]==='')) r[c]=o[c]; }); });
         keep('cartoes',['logo','cor','bandeira','final','limite','venc','melhor']); keep('contas',['logo','cor']);
-        const old=DB; DB=D; COLS.forEach(k=>(old[k]||[]).forEach(r=>{ if(!D[k].some(x=>x.id===r.id)) D[k].push(Object.assign({},r,{del:1,u:nowMs()})); }));
+        const old=DB; D.planos=(old.planos||[]).slice(); DB=D; COLS.forEach(k=>(old[k]||[]).forEach(r=>{ if(!D[k].some(x=>x.id===r.id)) D[k].push(Object.assign({},r,{del:1,u:nowMs()})); }));
         ANO=rel.ano; lsSet('fin-ano',String(ANO)); closeModal(); await commit('Planilha importada ✓'); setTab('inicio'); };
     });
   }catch(e){ console.error(e); alert('Não consegui ler a planilha: '+(e.message||e)); }
@@ -4705,11 +4709,124 @@ function composicaoHTML(itens, total){
 }
 
 /* =====================================================================
+   PLANEJAMENTO ANUAL — montar o orçamento do ano a dois (receitas,
+   despesas por categoria, lazer e quanto guardar) e acompanhar depois
+   Registros na coleção "planos": {ano, g:'R'|'D'|'L'|'G', nome, meses:[12], obs}
+   ===================================================================== */
+const PL = {ano:0, base:0, aberto:{}};
+const PL_G = {R:['💰','Receitas previstas','Salários, extras, aluguéis…'], D:['🧾','Despesas','Por categoria — a base é o que foi gasto no ano de referência'], L:['🎉','Lazer','Passeios, viagens, restaurantes, presentes…'], G:['🐷','Guardar','Reserva, objetivos (trocar de carro, viagem), investimentos']};
+const plLive = ano => live('planos').filter(p=>+p.ano===+ano);
+const somaM = m => sum(m||[],x=>+x||0);
+const r10 = v => Math.round(v/10)*10;
+
+/* gastos e receitas reais de um ano, por categoria (lançamentos + compras no cartão por parcela) */
+function realPorCat(ano){
+  const out=[]; const add=(t,cat,sub,mes,v)=>{ if(v) out.push({t,cat:cat||'(sem categoria)',sub:sub||'',mes,v}); };
+  live('lanc').forEach(l=>{ if(!l.data||+l.data.slice(0,4)!==+ano) return; const mes=+l.data.slice(5,7);
+    if(l.t==='R') add('R', l.plano||l.sub||l.cat||l.desc, l.ref||l.desc, mes, +l.valor||0); else add('D', l.cat||l.plano, l.sub||l.ref, mes, +l.valor||0); });
+  live('compras').forEach(p=>Object.entries(p.parc||{}).forEach(([ym,v])=>{ if(+ym.slice(0,4)!==+ano) return; add('D', p.cat||(p.ref?'Cartão · '+p.ref:'Cartão (sem categoria)'), p.sub||p.desc, +ym.slice(5,7), +v||0); }));
+  return out;
+}
+/* base de um ano: no ano atual, só de janeiro até o mês atual (o resto do ano ainda não aconteceu) */
+function mesesComDadoAno(ano){ const hoje=new Date(); return +ano===hoje.getFullYear() ? hoje.getMonth()+1 : 12; }
+const realBase = ano => { const lim=mesesComDadoAno(ano); return realPorCat(ano).filter(x=>x.mes<=lim); };
+
+function renderPlanejar(v){
+  const hoje=new Date(); if(!PL.ano) PL.ano = hoje.getMonth()>=8 ? hoje.getFullYear()+1 : hoje.getFullYear();
+  if(!PL.base) PL.base = PL.ano-1;
+  const anos=[...new Set([hoje.getFullYear()-1,hoje.getFullYear(),hoje.getFullYear()+1,PL.ano].concat(live('planos').map(p=>+p.ano)))].sort();
+  const P=plLive(PL.ano);
+  const RB=realBase(PL.base), nb=mesesComDadoAno(PL.base);
+  const baseCat=(t,nome)=>sum(RB.filter(x=>x.t===t&&nkey(x.cat)===nkey(nome)),x=>x.v);
+  const tot=g=>sum(P.filter(p=>p.g===g),p=>somaM(p.meses));
+  const mesT=(g,i)=>sum(P.filter(p=>p.g===g),p=>+(p.meses||[])[i]||0);
+  const R=tot('R'), D=tot('D'), L=tot('L'), Gd=tot('G'), sobra=R-D-L-Gd;
+  const meses=MESES_C.map((_,i)=>({r:mesT('R',i), s:mesT('D',i)+mesT('L',i)+mesT('G',i)})); const neg=meses.filter(m=>m.r-m.s<-0.5).length;
+  v.innerHTML = pageHead('Planejamento anual', 'Sentem juntos e combinem quanto entra, quanto pode sair em cada categoria, o lazer e quanto guardar. Depois o app compara com o que for lançado.',
+      `<span class="mini">Planejar <select id="plAno" class="btn small">${opt(anos.map(String),String(PL.ano))}</select> com base em <select id="plBase" class="btn small">${opt(anosDisponiveis().concat([PL.ano-1]).filter((x,i,a)=>a.indexOf(x)===i).sort().map(String),String(PL.base))}</select></span>`)
+  + (P.length?'':`<div class="infobox">Ainda não há plano para <b>${PL.ano}</b>. <button class="btn primary" id="plGerar">✨ Montar a partir de ${PL.base}</button> — o app sugere, para cada categoria, a média por mês de ${PL.base} (média de ${nb} ${nb>1?'meses':'mês'}). Depois é só ajustar.${plLive(PL.ano-1).length?` <button class="btn" id="plCopiar">Copiar o plano de ${PL.ano-1}</button>`:''}</div>`)
+  + `<div class="kpis">
+      ${kpi('Receitas previstas',brl(R),brl0(R/12)+' por mês','green')}
+      ${kpi('Despesas planejadas',brl(D),R?pct(D/R,0)+' da receita':'','orange')}
+      ${kpi('Lazer',brl(L),R?pct(L/R,0)+' da receita':'','purple')}
+      ${kpi('Guardar',brl(Gd),R?pct(Gd/R,0)+' da receita — referência saudável: 10% a 20%':'','blue')}
+      ${kpi(sobra<-0.5?'Falta no ano':'Sobra sem destino',`<span class="${sobra<-0.5?'st-crit':'st-good'}">${brl(Math.abs(sobra))}</span>`,sobra<-0.5?'O plano gasta mais do que entra — ajuste':(neg?neg+' mês(es) no vermelho (veja o gráfico)':'Pode ir para Guardar ou Lazer'),sobra<-0.5||neg?'red':'green')}
+    </div>
+    <div class="grid">
+      ${card('c12','Mês a mês do plano','Barras: o que entra × o que sai (despesas + lazer + guardar). Vermelho = mês em que sai mais do que entra.',chartBox('chPl'))}
+      ${['R','D','L','G'].map(g=>card('c12',PL_G[g][0]+' '+PL_G[g][1],PL_G[g][2],plTabela(g,P.filter(p=>p.g===g),baseCat,nb))).join('')}
+      ${PL.ano<=hoje.getFullYear()&&P.length?card('c12','Acompanhamento: planejado × realizado',`${PL.ano} até ${MESES_LONG[(+PL.ano<hoje.getFullYear()?12:hoje.getMonth()+1)-1]} · vermelho = passou do combinado`,`<div class="twrap"><table id="tPlA"></table></div>`):''}
+    </div>`;
+  vbar('chPl',MESES_C,[barDS('Entra',meses.map(m=>m.r),series(1)),barDS('Sai',meses.map(m=>m.s),meses.map(m=>m.s>m.r+0.5?css('--crit'):series(2)))],{money:true,empty:'Monte o plano para ver o gráfico.'});
+  // eventos
+  $('#plAno').onchange=e=>{ PL.ano=+e.target.value; PL.base=PL.ano-1; renderPlanejar(v); };
+  $('#plBase').onchange=e=>{ PL.base=+e.target.value; renderPlanejar(v); };
+  if($('#plGerar')) $('#plGerar').onclick=async()=>{ plGerar(PL.ano,PL.base); await commit('Plano montado — agora ajustem os valores ✓'); };
+  if($('#plCopiar')) $('#plCopiar').onclick=async()=>{ plLive(PL.ano-1).forEach(p=>put('planos',{ano:PL.ano,g:p.g,nome:p.nome,meses:p.meses.slice(),obs:p.obs||''})); await commit('Plano copiado ✓'); };
+  v.querySelectorAll('[data-plm]').forEach(inp=>inp.onchange=async()=>{ const p=byId('planos',inp.dataset.plm); const x=numBR(inp.value); put('planos',Object.assign({},p,{meses:Array(12).fill(Math.round(x*100)/100)})); await commit(); });
+  v.querySelectorAll('[data-pln]').forEach(inp=>inp.onchange=async()=>{ const p=byId('planos',inp.dataset.pln); if(!inp.value.trim()) return; put('planos',Object.assign({},p,{nome:inp.value.trim()})); await commit(); });
+  v.querySelectorAll('[data-plmes]').forEach(b=>b.onclick=()=>plMeses(byId('planos',b.dataset.plmes), baseCat, nb));
+  v.querySelectorAll('[data-pldel]').forEach(b=>b.onclick=async()=>{ if(!confirm('Tirar esta linha do plano?')) return; del('planos',b.dataset.pldel); await commit('Linha removida'); });
+  v.querySelectorAll('[data-pladd]').forEach(b=>b.onclick=async()=>{ const g=b.dataset.pladd; const nome=prompt(g==='G'?'Nome do objetivo (ex.: Reserva de emergência, Trocar de carro):':g==='L'?'Nome (ex.: Viagem de férias, Passeios, Restaurantes):':g==='R'?'Nome da receita (ex.: Salário Ulisses, 13º):':'Nome da categoria:'); if(!nome||!nome.trim()) return; put('planos',{ano:PL.ano,g,nome:nome.trim(),meses:Array(12).fill(0),obs:''}); await commit('Linha incluída ✓'); });
+  v.querySelectorAll('[data-plsug]').forEach(b=>b.onclick=async()=>{ const p=byId('planos',b.dataset.plsug); const base=baseCat(p.g==='R'?'R':'D',p.nome)/nb; put('planos',Object.assign({},p,{meses:Array(12).fill(r10(base))})); await commit(); });
+  if($('#tPlA')) plAcompanhar(P);
+}
+function plTabela(g, linhas, baseCat, nb){
+  const lin=linhas.slice().sort((a,b)=>somaM(b.meses)-somaM(a.meses));
+  const comBase = g==='R'||g==='D';
+  return `<div class="twrap"><table class="pl-t"><thead><tr><th>${g==='D'?'Categoria':g==='G'?'Objetivo':'Linha'}</th>${comBase?`<th class="num">Média/mês em ${PL.base}</th>`:''}<th class="num">Por mês</th><th class="num">No ano</th><th></th></tr></thead><tbody>
+    ${lin.map(p=>{ const m=p.meses||Array(12).fill(0); const igual=m.every(x=>Math.abs((+x||0)-(+m[0]||0))<0.005); const b=comBase?baseCat(g==='R'?'R':'D',p.nome)/nb:0;
+      return `<tr><td><input class="pl-nome" data-pln="${p.id}" value="${esc(p.nome)}"></td>${comBase?`<td class="num note">${b?brl(b):'—'}${b&&Math.abs(b-(+m[0]||0))>5&&igual?` <button class="btn small ghost" data-plsug="${p.id}" title="Usar a média de ${PL.base}">↺</button>`:''}</td>`:''}
+        <td class="num"><input class="pl-v" inputmode="decimal" data-plm="${p.id}" value="${igual?esc(fmtNumBR(m[0])):''}" placeholder="${igual?'0,00':'varia'}"></td>
+        <td class="num"><b>${brl(somaM(m))}</b></td>
+        <td style="white-space:nowrap"><button class="btn small" data-plmes="${p.id}" title="Valores diferentes por mês (ex.: viagem em julho, IPVA em janeiro)">✏️ mês a mês</button> <button class="btn small ghost" data-pldel="${p.id}" title="Tirar do plano">🗑</button></td></tr>`; }).join('')||`<tr><td colspan="5" class="note">Nenhuma linha ainda.</td></tr>`}
+    </tbody><tfoot><tr><td>Total</td>${comBase?`<td class="num">${brl(sum(lin,p=>baseCat(g==='R'?'R':'D',p.nome)/nb))}</td>`:''}<td class="num">${brl(sum(lin,p=>somaM(p.meses))/12)}</td><td class="num">${brl(sum(lin,p=>somaM(p.meses)))}</td><td></td></tr></tfoot></table></div>
+    <div class="fbtns"><button class="btn small" data-pladd="${g}">+ Incluir ${g==='D'?'categoria':g==='G'?'objetivo':'linha'}</button></div>`;
+}
+function plGerar(ano, base){
+  const RB=realBase(base), nb=mesesComDadoAno(base);
+  const ag=t=>{ const m=new Map(); RB.filter(x=>x.t===t).forEach(x=>{ const k=nkey(x.cat); const e=m.get(k)||{nome:x.cat,v:0}; e.v+=x.v; m.set(k,e); }); return [...m.values()].sort((a,b)=>b.v-a.v); };
+  ag('R').forEach(e=>put('planos',{ano,g:'R',nome:e.nome,meses:Array(12).fill(r10(e.v/nb)),obs:''}));
+  ag('D').forEach(e=>{ const lz=/lazer|viage|passeio|restaur|divers|cinema|show/.test(norm(e.nome)); put('planos',{ano,g:lz?'L':'D',nome:e.nome,meses:Array(12).fill(r10(e.v/nb)),obs:''}); });
+  if(!plLive(ano).some(p=>p.g==='G')) put('planos',{ano,g:'G',nome:'Reserva de emergência',meses:Array(12).fill(0),obs:''});
+  if(!plLive(ano).some(p=>p.g==='L')) put('planos',{ano,g:'L',nome:'Lazer e passeios',meses:Array(12).fill(0),obs:''});
+}
+function plMeses(p, baseCat, nb){
+  const m=(p.meses||Array(12).fill(0)).slice();
+  const RB=realBase(PL.base).filter(x=>(p.g==='R'?x.t==='R':x.t==='D')&&nkey(x.cat)===nkey(p.nome));
+  const subs=agg(RB,x=>x.sub||'(sem subcategoria)',x=>x.v).slice(0,10);
+  modal(`<button class="btn small x" data-close>✕</button><h2>${esc(p.nome)} · ${PL.ano}</h2><p class="note">Valor de cada mês. Use para gastos que não são iguais todo mês (IPVA, matrícula, viagem, 13º).</p>
+    <div class="fgrid fg4 frm" id="plMs">${MESES_C.map((x,i)=>field(cap1(MESES_LONG[i]),`<input inputmode="decimal" data-i="${i}" value="${esc(fmtNumBR(m[i]))}" placeholder="0,00">`)).join('')}</div>
+    <div class="fbtns"><button class="btn small" id="plRep">Repetir o valor de janeiro em todos</button><span class="note" id="plTot"></span></div>
+    ${subs.length?`<h4>O que compôs ${esc(p.nome)} em ${PL.base}</h4><div class="twrap short"><table><tbody>${subs.map(s=>`<tr><td>${esc(s[0])}</td><td class="num">${brl(s[1])} no ano</td><td class="num">${brl(s[1]/nb)}/mês</td></tr>`).join('')}</tbody></table></div>`:''}
+    <div class="fbtns"><button class="btn primary" id="plOk">Salvar</button></div>`, root=>{
+    const ler=()=>[...root.querySelectorAll('[data-i]')].map(i=>Math.round(numBR(i.value)*100)/100);
+    const tt=()=>{ $('#plTot').textContent='Total no ano: '+brl(sum(ler(),x=>x)); }; root.querySelectorAll('[data-i]').forEach(i=>i.oninput=tt); tt();
+    $('#plRep').onclick=()=>{ const a=root.querySelector('[data-i="0"]').value; root.querySelectorAll('[data-i]').forEach(i=>i.value=a); tt(); };
+    $('#plOk').onclick=async()=>{ put('planos',Object.assign({},p,{meses:ler()})); closeModal(); await commit('Salvo ✓'); };
+  });
+}
+/* planejado × realizado no ano escolhido */
+function plRealizado(ano){ const R=realPorCat(ano); return (g,nome)=>{ const t=g==='R'?'R':'D'; const a=Array(12).fill(0); R.filter(x=>x.t===t&&nkey(x.cat)===nkey(nome)).forEach(x=>a[x.mes-1]+=x.v); return a; }; }
+function plAcompanhar(P){
+  const hoje=new Date(); const ate = +PL.ano<hoje.getFullYear()?12:hoje.getMonth()+1; const rf=plRealizado(PL.ano);
+  const L=P.filter(p=>p.g!=='G').map(p=>{ const r=rf(p.g,p.nome); const pAte=sum(p.meses.slice(0,ate),x=>+x||0), rAte=sum(r.slice(0,ate),x=>x), pm=+p.meses[ate-1]||0, rm=r[ate-1];
+    return {p, pAte, rAte, pm, rm, d:rAte-pAte, ratio:pAte?rAte/pAte:null, mRatio:pm?rm/pm:null}; }).filter(x=>x.pAte||x.rAte);
+  const st=(x,g)=>{ if(x==null) return ''; if(g==='R') return x>=0.98?'<span class="st-good">✓ ok</span>':'<span class="st-warn">abaixo</span>'; return x>1.005?'<span class="pill"><span class="dot" style="background:var(--crit)"></span>✕ Passou '+pct(x-1,0)+'</span>':x>=0.9?'<span class="pill"><span class="dot" style="background:var(--warn)"></span>! No limite</span>':'<span class="pill"><span class="dot" style="background:var(--good)"></span>✓ Dentro</span>'; };
+  table('tPlA',[{h:'Linha',v:x=>x.p.nome,html:x=>`${PL_G[x.p.g][0]} ${esc(x.p.nome)}`},{h:'Planejado em '+MESES_C[ate-1],v:x=>x.pm,num:1,f:brl},{h:'Realizado em '+MESES_C[ate-1],v:x=>x.rm,num:1,f:brl},{h:'Situação no mês',v:x=>x.mRatio??-1,html:x=>st(x.mRatio,x.p.g)},{h:'Planejado até '+MESES_C[ate-1],v:x=>x.pAte,num:1,f:brl},{h:'Realizado até '+MESES_C[ate-1],v:x=>x.rAte,num:1,f:brl},{h:'Diferença',v:x=>x.d,num:1,html:x=>`<span class="${x.p.g!=='R'&&x.d>0.5?'st-crit':''}">${brl(x.d)}</span>`},{h:'No acumulado',v:x=>x.ratio??-1,html:x=>st(x.ratio,x.p.g)}],L,{sort:7,dir:-1,empty:'Nada para comparar ainda.'});
+}
+/* resumo para o Início: categorias acima do planejado no mês */
+function plAlertas(){ const hoje=new Date(); const ano=hoje.getFullYear(); const P=plLive(ano).filter(p=>p.g==='D'||p.g==='L'); if(!P.length) return null; const m=hoje.getMonth(); const rf=plRealizado(ano);
+  const acima=P.map(p=>({n:p.nome, pl:+p.meses[m]||0, r:rf(p.g,p.nome)[m]})).filter(x=>x.pl>0&&x.r>x.pl); return {acima, total:P.length}; }
+
+TABS.splice(TABS.findIndex(t=>t.id==='orcamento'),0,{id:'planejar',g:'gastos',ic:'🗓️',l:'Planejamento anual',d:'Montar o orçamento do ano a dois: receitas, despesas por categoria, lazer e quanto guardar — e acompanhar.',render:renderPlanejar,noF:1});
+
+/* =====================================================================
    INÍCIO DO APP: tela de entrada, login, abrir dados e navegação do celular
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.2.5';
+const APP_VER='1.3.0';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
@@ -4757,6 +4874,7 @@ function mostrarInicio(){
 }
 async function abrirApp(){
   await loadFotosLocal();
+  COLS.forEach(k=>{ if(!Array.isArray(DB[k])) DB[k]=[]; });
   if(!DB.listas.length) listas(); if(!DB.cfg.length) cfg();
   STATE=dbToState(ANO);
   if(temSenha() && !LOCK.ok) bloquear();
