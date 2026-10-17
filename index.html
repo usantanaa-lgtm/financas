@@ -489,6 +489,15 @@ body.no-app #btnLock,body.no-app #btnSair{display:none!important}
 .img-up{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.img-up img{height:36px;max-width:90px;object-fit:contain;border-radius:6px;background:#fff;box-shadow:0 0 0 1px var(--border)}
 .login{display:flex;flex-direction:column;gap:10px;text-align:left}.login .btn{justify-content:center}
 .st-teste{text-align:left;margin-top:8px;font-size:14px}.st-teste summary{cursor:pointer;color:var(--muted)}
+/* valores ocultos */
+body.ocultar :is(.kpi .v,.kpi .s,td.num,tfoot td,.bx-v,.pq-tx b,.bud .note,.chart-box canvas,.fbtns .note,#prev td){filter:blur(7px);user-select:none;transition:filter .15s}
+body.ocultar .chart-box{pointer-events:none}
+#btnEye{min-width:34px}
+.login-row{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px;flex-wrap:wrap}.login-row a,.login a{color:var(--accent,#2a78d6);text-decoration:none;font-weight:600}
+.passos{padding-left:20px;line-height:1.5}.passos li{margin:6px 0}
+.calc{max-width:320px;margin:0 auto}.calc-ex{color:var(--muted);text-align:right;min-height:20px;font-size:14px;word-break:break-all}.calc-v{font-size:30px;font-weight:700;text-align:right;margin:4px 0 10px}
+.calc-k{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.calc-k .btn{justify-content:center;padding:14px 0;font-size:18px}
+.eye-btn{background:none;border:0;padding:4px 6px;cursor:pointer;color:var(--ink);display:inline-flex;align-items:center;border-radius:8px}.eye-btn:hover{background:var(--bg)}
 
 </style>
 <script src="config.js"></script>
@@ -509,6 +518,8 @@ body.no-app #btnLock,body.no-app #btnSair{display:none!important}
     <button class="btn small" id="btnTheme" title="Tema de cores">🎨</button>
     <button class="btn small hide-m" id="btnCfg" title="Configurações">⚙</button>
     <button class="btn small hide-m" id="btnFull" title="Tela cheia">⛶</button>
+    <button class="btn small hide-m" id="btnCalc" title="Calculadora">🧮</button>
+    <button class="eye-btn" id="btnEye" title="Mostrar ou ocultar os valores"></button>
     <button class="btn small" id="btnLock" title="Bloquear o app (pede a senha)">🔒</button>
     <button class="btn small hide-m" id="btnSair" title="Sair do sistema neste aparelho">⏻</button>
   </div>
@@ -1575,6 +1586,7 @@ function renderInicio(v, rows){
       ${kpi('Limites estourados',B.length,B.length?B.map(b=>b.sub).slice(0,3).join(', '):'Dentro dos limites em '+MESES_LONG[m-1],'orange','data-go="orcamento"')}
       ${kpi('Saldo previsto em 31/12',`<span class="${moneyCls(saldoPrevistoFim())}">${brl(saldoPrevistoFim())}</span>`,'Se tudo lançado for pago/recebido','aqua','data-go="tendencia"')}
     </div>`
+  + (STATE.app?ultimosHTML():'')
   + GROUPS.map(([g,gl])=>`<div class="sec-t">${gl}</div><div class="navgrid">${TABS.filter(t=>t.g===g&&!(t.hide&&t.hide())).map(t=>`<button class="navcard" data-go="${t.id}"><div class="g">${gl}</div><div class="n">${t.ic} ${esc(t.l)}</div><div class="d">${esc(t.d)}</div></button>`).join('')}</div>`).join('');
   goBind(v); $('#btnResumoDia').onclick=()=>showDailySummary(true);
 }
@@ -3523,6 +3535,21 @@ function renderSyncChip(){
   };
 }
 
+/* Leitura da nota pelo Google (OCR do Google Drive, na própria conta):
+   envia a foto convertendo para Google Docs, pega o texto e apaga o arquivo temporário na hora. */
+async function gOCR(dataURL){
+  const bin=atob(dataURL.split(',')[1]); const bytes=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  const mime=(dataURL.match(/^data:([^;]+)/)||[])[1]||'image/jpeg';
+  const meta={name:'financas-leitura-temporaria', mimeType:'application/vnd.google-apps.document'}; if(G.files.pasta) meta.parents=[G.files.pasta];
+  const b='fin'+uid(); const enc=new TextEncoder();
+  const head=enc.encode(`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: ${mime}\r\n\r\n`), tail=enc.encode(`\r\n--${b}--`);
+  const body=new Uint8Array(head.length+bytes.length+tail.length); body.set(head,0); body.set(bytes,head.length); body.set(tail,head.length+bytes.length);
+  const r=await gfetch(UP+'/files?uploadType=multipart&ocrLanguage=pt&fields=id',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+b},body});
+  const id=(await r.json()).id;
+  try{ const t=await gfetch(API+`/files/${id}/export?mimeType=text/plain`); return await t.text(); }
+  finally{ gfetch(API+`/files/${id}`,{method:'DELETE'}).catch(()=>{}); }
+}
+
 /* =====================================================================
    DB do sistema  ->  STATE no formato que os painéis do visualizador usam.
    Assim todas as análises continuam iguais, agora alimentadas pelo app.
@@ -3690,12 +3717,12 @@ function importarPlanilha(wb, nomeArq){
    ===================================================================== */
 const opt = (arr, sel, vazio) => (vazio!=null?`<option value="">${esc(vazio)}</option>`:'') + arr.map(x=>{ const [v,l]=Array.isArray(x)?x:[x,x]; return `<option value="${esc(v)}" ${String(v)===String(sel??'')?'selected':''}>${esc(l)}</option>`; }).join('');
 const dl = (id, arr) => `<datalist id="${id}">${arr.map(x=>`<option value="${esc(x)}">`).join('')}</datalist>`;
-const numBR = s => { if(typeof s==='number') return s; s=String(s||'').trim().replace(/[R$\s]/g,''); if(!s) return 0; if(s.includes(',')) s=s.replace(/\./g,'').replace(',','.'); const v=parseFloat(s); return isFinite(v)?v:0; };
+const numBR = s => { if(typeof s==='number') return s; s=String(s||'').trim().replace(/[R$\s]/g,''); if(!s) return 0; if(/[-+*/x×÷()]/.test(s.slice(1))) return contaBR(s); if(s.includes(',')) s=s.replace(/\./g,'').replace(',','.'); const v=parseFloat(s); return isFinite(v)?v:0; };
 const fmtNumBR = v => v ? (+v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
 const hojeISO = () => isoLocal(new Date());
 const addMesesISO = (iso,k) => { const d=parseISO(iso); if(!d) return ''; const t=new Date(d.getFullYear(), d.getMonth()+k, 1); const last=new Date(t.getFullYear(),t.getMonth()+1,0).getDate(); return isoLocal(new Date(t.getFullYear(),t.getMonth(),Math.min(d.getDate(),last))); };
 function rebuild(){ if(!DB) return; STATE=dbToState(ANO); if(typeof temSenha==='function' && temSenha() && !LOCK.ok && !LOCK.on && !$('#app').classList.contains('hidden')) bloquear(); if(!$('#app').classList.contains('hidden')){ buildFilterOptions(); renderFilterBar(); const tab=TABS.find(x=>x.id===TAB); if(!(tab&&tab.noF&&TAB==='lancar')) renderView(); } updateBadges(); }
-function updateBadges(){ const a=$('#anoTx'); if(a) a.textContent=ANO; const n=live('pend').length; $$('[data-badge=pend]').forEach(b=>{ b.textContent=n||''; b.classList.toggle('hidden',!n); }); }
+function updateBadges(){ const lk=$('#btnLock'); if(lk&&typeof temSenha==='function') lk.classList.toggle('hidden',!temSenha()); const a=$('#anoTx'); if(a) a.textContent=ANO; const n=live('pend').length; $$('[data-badge=pend]').forEach(b=>{ b.textContent=n||''; b.classList.toggle('hidden',!n); }); }
 function field(l, html, cls='', hint=''){ return `<label class="ff ${cls}"><span class="fl">${esc(l)}</span>${html}${hint?`<span class="fh">${hint}</span>`:''}</label>`; }
 function segBtns(name, items, val){ return `<div class="segb" data-seg="${name}">${items.map(([v,l])=>`<button type="button" data-v="${esc(v)}" aria-pressed="${v===val}">${l}</button>`).join('')}</div>`; }
 
@@ -3730,7 +3757,7 @@ function renderLancar(v){
   const f=FORM, L=listas(), ed=!!f.edit;
   const cards=cartoesAtivos(); if(f.t==='C' && !f.cartao && cards[0]) f.cartao=cards[0].id;
   const pend = f.pend ? byId('pend', f.pend) : null;
-  v.innerHTML = pageHead(ed?'Editar lançamento':'Novo lançamento', ed?'Altere e salve. Para apagar, use Excluir.':'Escolha o tipo e preencha. O que não vale para o tipo escolhido fica escondido.')
+  v.innerHTML = pageHead(ed?'Editar lançamento':'Novo lançamento', ed?'Altere e salve. Para apagar, use Excluir.':'Escolha o tipo e preencha. Dica: no valor dá para fazer contas (ex.: 120+35,90).', '<button class="btn small" id="bCalc">🧮 Calculadora</button>')
   + `<div class="grid"><div class="card c7 frm" id="frm">
       ${segBtns('t',[['D','💸 Saída'],['R','💰 Entrada'],['C','💳 Cartão']],f.t)}
       <div class="fgrid">
@@ -3793,7 +3820,8 @@ function renderLancar(v){
   };
   root.querySelectorAll('input,select').forEach(el=>{ el.oninput=el.onchange=()=>{ f[el.name]=el.value; if(el.name==='cat'){ const d=$('#dlSub'); if(d) d.outerHTML=dl('dlSub',subcats(f.cat)); } sync(); }; });
   root.querySelectorAll('[data-seg]').forEach(sg=>sg.querySelectorAll('button').forEach(b=>b.onclick=()=>{ f[sg.dataset.seg]=b.dataset.v; sg.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); if(sg.dataset.seg==='t'){ if(!ed) lsSet('fin-ult-tipo',f.t); renderLancar(v); return; } sync(); }));
-  $('#bSalvar').onclick=()=>salvarForm(v);
+  root.querySelector('[name=desc]').addEventListener('change',()=>{ if(autoPreencher(f)){ renderLancar(v); toast('Preenchi como da última vez — confira'); } });
+  $('#bSalvar').onclick=()=>salvarForm(v); $('#bCalc').onclick=()=>calculadora();
   if($('#bLimpar')) $('#bLimpar').onclick=()=>{ FORM=novoForm(f.t); renderLancar(v); };
   if($('#bCancelar')) $('#bCancelar').onclick=()=>{ const vt=f.voltar||'lancamentos'; FORM=null; setTab(vt); };
   bindBaixaFoto(v); if($('#bTiraFoto')) $('#bTiraFoto').onclick=()=>{ if(confirm('Tirar o comprovante deste lançamento? (some ao salvar)')){ f.foto=''; renderLancar(v); } };
@@ -3884,7 +3912,7 @@ function renderPendentes(v){
   root.querySelectorAll('input[name],select[name]').forEach(el=>el.oninput=el.onchange=()=>PQ[el.name]=el.value);
   const ler=async()=>{ PQ.ocr='lendo'; renderPendentes(v); try{ const r=await lerNota(PQ.arq||PQ.foto); const ach=[]; PQ.cands=r.cands||[]; PQ.texto=r.texto||'';
       if(r.valor){ PQ.valor=fmtNumBR(r.valor); ach.push('valor'); } if(r.data){ PQ.data=r.data; ach.push('data'); } if(r.estab){ PQ.desc=r.estab; ach.push('estabelecimento'); }
-      PQ.ocr = ach.length ? '✔ Li: '+ach.join(', ')+'. Confira.' : 'Não consegui ler. Preencha à mão (foto mais reta e com luz ajuda).'; }
+      PQ.ocr = ach.length ? '✔ Li ('+(r.fonte==='Google'?'leitura do Google':'leitura no aparelho')+'): '+ach.join(', ')+'. Confira.' : 'Não consegui ler. Preencha à mão (foto mais reta e com luz ajuda).'; }
     catch(e){ console.error(e); PQ.ocr='Leitura indisponível agora ('+(e.message||e)+'). Preencha à mão.'; }
     if(TAB==='pendentes') renderPendentes(v); };
   $('#pqFile').onchange=async e=>{ const f=e.target.files[0]; if(!f) return; try{ PQ.arq=f; PQ.cands=[]; PQ.texto=''; PQ.foto=await fotoReduzida(f); renderPendentes(v); if(cfg().ocr!==false) ler(); }catch(err){ toast(err.message); } };
@@ -3964,8 +3992,8 @@ function renderFaturas(v){
     <div class="fbtns">${pago?'<button class="btn" id="ftReabrir">Reabrir fatura</button>':`${semContas()?'':`<select id="ftConta">${opt(contasAtivas(),(f&&f.conta)||c.conta||'','Conta que pagou (opcional)')}</select>`}<input type="date" id="ftData" value="${hojeISO()}" title="Data do pagamento"><input id="ftValor" inputmode="decimal" value="${esc(fmtNumBR(tot))}" style="width:120px" title="Valor pago (mude se pagou com juros ou só uma parte)"><button class="btn primary" id="ftPagar" ${tot?'':'disabled'}>Pagar fatura</button><span class="note">Pagou um valor diferente? Mude o valor: o app pergunta se foi juros ou pagamento parcial.</span>`}</div>
     <div class="grid"><div class="card c8"><h3>Compras da fatura</h3><div class="twrap"><table id="tFt"></table></div></div>
     <div class="card c4"><h3>Próximas faturas</h3><div class="twrap short"><table><tbody>${prox.map(x=>`<tr class="clk" data-ym="${x.ym}"><td>${ymLabel(x.ym)}</td><td class="num">${brl(x.v)}</td><td>${x.st==='PAGO'?'<span class="pill">paga</span>':''}</td></tr>`).join('')}</tbody></table></div></div>
-    <div class="card c12"><h3>Conferir com a fatura do banco</h3><div class="sub">Escolha o arquivo baixado do banco (.xlsx ou .csv). O app compara com as compras deste cartão em ${ymLabel(FT.ym)}.</div>
-      <div class="fbtns"><label class="btn"><input type="file" id="ftArq" accept=".xlsx,.xls,.csv" hidden>📄 Escolher arquivo da fatura</label>${FT.conf?'<button class="btn primary" id="ftImp">Importar os não lançados marcados</button><button class="btn" id="ftLimpa">Limpar</button>':''}</div>
+    <div class="card c12"><h3>Conferir com a fatura do banco</h3><div class="sub">Escolha a fatura baixada do banco (PDF, Excel ou CSV — Itaú, Mercado Pago, PicPay, Nubank…). O app compara com as compras deste cartão em ${ymLabel(FT.ym)}.</div>
+      <div class="fbtns"><label class="btn"><input type="file" id="ftArq" accept=".xlsx,.xls,.csv,.pdf,application/pdf" hidden>📄 Escolher arquivo da fatura (PDF, Excel ou CSV)</label>${FT.conf?'<button class="btn primary" id="ftImp">Importar os não lançados marcados</button><button class="btn" id="ftLimpa">Limpar</button>':''}</div>
       <div id="ftRes"></div></div></div>`;
   table('tFt',[{h:'Data',v:p=>parseISO(p.data),f:v=>v?fmtDateS(v):''},{h:'Lançamento',v:p=>p.desc,html:p=>`<b>${esc(p.desc||'—')}</b>${p.by?`<br><span class="note">${esc(p.by)}</span>`:''}`},{h:'Categoria',v:p=>p.sub||p.cat||p.ref},{h:'Parcela',v:p=>p.pn},{h:'Valor',v:p=>p.vm,num:1,f:brl}],itens,{onClick:p=>editarCompra(p.id),empty:'Nenhuma compra nesta fatura.',foot:(col,i)=>i===0?'Total':col.h==='Valor'?brl(tot):''});
   v.querySelectorAll('[data-card]').forEach(b=>b.onclick=()=>{ FT.cartao=b.dataset.card; FT.ym=''; FT.conf=null; renderFaturas(v); });
@@ -3974,7 +4002,7 @@ function renderFaturas(v){
   $('#ftNova').onclick=()=>abrirLancar({t:'C',cartao:c.id});
   if($('#ftPagar')) $('#ftPagar').onclick=()=>pagarFatura(c, FT.ym, tot, f, $('#ftConta')?$('#ftConta').value:'', $('#ftData').value, numBR($('#ftValor').value), ()=>renderFaturas(v));
   if($('#ftReabrir')) $('#ftReabrir').onclick=async()=>{ const aj=live('compras').filter(p=>p.fatAjuste===f.id); if(aj.length && !confirm(`Reabrir a fatura também desfaz ${aj.length} ajuste(s) criados no pagamento (juros ou restante). Continuar?`)) return; aj.forEach(p=>del('compras',p.id)); put('faturas',Object.assign({},f,{status:'EM ABERTO',dataPag:'',valorPago:null})); await commit('Fatura reaberta'); renderFaturas(v); };
-  $('#ftArq').onchange=async e=>{ const file=e.target.files[0]; if(!file) return; try{ const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array',cellDates:true}); const r=lerFaturaBanco(wb); if(r.ym && r.ym!==FT.ym && confirm(`O arquivo é da fatura de ${ymLabel(r.ym)}. Mudar para esse mês?`)) FT.ym=r.ym; FT.conf=conferir(c.id,FT.ym,r.linhas); renderFaturas(v); }catch(err){ console.error(err); toast('Não consegui ler o arquivo: '+err.message); } };
+  $('#ftArq').onchange=async e=>{ const file=e.target.files[0]; if(!file) return; try{ let r; if(/\.pdf$/i.test(file.name)||file.type==='application/pdf'){ toast('Lendo o PDF…'); r=await lerFaturaPDF(file); } else { const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array',cellDates:true}); r=lerFaturaBanco(wb); } if(r.ym && r.ym!==FT.ym && confirm(`O arquivo é da fatura de ${ymLabel(r.ym)}. Mudar para esse mês?`)) FT.ym=r.ym; FT.conf=conferir(c.id,FT.ym,r.linhas); FT.conf.texto=r.texto||null; renderFaturas(v); }catch(err){ console.error(err); toast('Não consegui ler o arquivo: '+err.message); } };
   if(FT.conf) mostrarConf(c);
 }
 function lerFaturaBanco(wb){
@@ -3983,7 +4011,7 @@ function lerFaturaBanco(wb){
     const a=XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:true,defval:null,blankrows:true});
     for(let i=0;i<Math.min(a.length,80);i++){ const txt=(a[i]||[]).map(x=>norm(x)).join(' ');
       const mm=txt.match(/fatura.*?(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\D{0,3}(\d{4})?/); if(mm&&!ym){ const k=MESES_LONG.map(norm).indexOf(mm[1]); ym=(mm[2]||new Date().getFullYear())+'-'+String(k+1).padStart(2,'0'); } }
-    for(let i=0;i<Math.min(a.length,80);i++){ const r=(a[i]||[]).map(nkey); const cD=r.indexOf('data'), cL=['lancamento','descricao','estabelecimento','historico'].map(x=>r.indexOf(x)).find(x=>x>=0), cV=['valor','valorr','valorrs','valoremr'].map(x=>r.indexOf(x)).find(x=>x>=0), cP=['parcelamento','parcela'].map(x=>r.indexOf(x)).find(x=>x>=0);
+    for(let i=0;i<Math.min(a.length,80);i++){ const r=(a[i]||[]).map(nkey); const cD=['data','date','datadacompra'].map(x=>r.indexOf(x)).find(x=>x>=0)??-1, cL=['lancamento','descricao','estabelecimento','historico','title','titulo','description'].map(x=>r.indexOf(x)).find(x=>x>=0), cV=['valor','valorr','valorrs','valoremr','amount','valorbrl'].map(x=>r.indexOf(x)).find(x=>x>=0), cP=['parcelamento','parcela'].map(x=>r.indexOf(x)).find(x=>x>=0);
       if(cD>=0 && cL!=null && cL>=0 && cV!=null && cV>=0){ const linhas=[]; let vaz=0;
         for(let j=i+1;j<a.length && vaz<3;j++){ const row=a[j]||[]; const l=str(row[cL]); const val=toNum(row[cV]); if(!l && !val){ vaz++; continue; } vaz=0; if(!l) continue;
           linhas.push({data:toDate(row[cD]), desc:l, parc:cP!=null&&cP>=0?str(row[cP]):'', valor:val}); }
@@ -4003,7 +4031,7 @@ function conferir(cartao, ym, linhas){
 function mostrarConf(c){
   const C=FT.conf; const n=k=>C.res.filter(r=>r.st===k).length;
   $('#ftRes').innerHTML=`<div class="kpis">${kpi('Na fatura do banco',brl(C.totF),C.res.length+' linha(s)','blue')}${kpi('No app',brl(C.totA),'','green')}${kpi('Diferença',brl(C.totF-C.totA),'',Math.abs(C.totF-C.totA)<.01?'green':'red')}${kpi('Resultado',n('ok')+' ✔ · '+n('novo')+' ✚ · '+n('dif')+' ≠','✔ lançado · ✚ falta lançar · ≠ valor diferente','amber')}</div>
-    <div class="twrap"><table><thead><tr><th></th><th>Data</th><th>Lançamento (banco)</th><th>Parcela</th><th class="num">Valor</th><th>Resultado</th></tr></thead><tbody>${C.res.map((r,i)=>`<tr><td>${r.st==='novo'?`<input type="checkbox" data-ci="${i}" ${r.marcar?'checked':''}>`:''}</td><td>${r.l.data?fmtDateS(r.l.data):''}</td><td>${esc(r.l.desc)}</td><td>${esc(r.l.parc)}</td><td class="num">${brl(r.l.valor)}</td><td>${r.st==='ok'?'<span class="st-good">✔ lançado</span>':r.st==='novo'?'<b style="color:var(--warn)">✚ não lançado</b>':r.st==='dif'?`<b style="color:var(--crit)">≠ no app ${brl(r.it.v)}</b> (${esc(r.it.p.desc)})`:'<span class="note">— pagamento/crédito</span>'}</td></tr>`).join('')}</tbody></table></div>
+    ${C.texto?`<details class="note" style="margin:6px 0"><summary>Ver o texto que o app leu do PDF</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:220px;overflow:auto">${esc(C.texto.join('\n'))}</pre></details>`:''}<div class="twrap"><table><thead><tr><th></th><th>Data</th><th>Lançamento (banco)</th><th>Parcela</th><th class="num">Valor</th><th>Resultado</th></tr></thead><tbody>${C.res.map((r,i)=>`<tr><td>${r.st==='novo'?`<input type="checkbox" data-ci="${i}" ${r.marcar?'checked':''}>`:''}</td><td>${r.l.data?fmtDateS(r.l.data):''}</td><td>${esc(r.l.desc)}</td><td>${esc(r.l.parc)}</td><td class="num">${brl(r.l.valor)}</td><td>${r.st==='ok'?'<span class="st-good">✔ lançado</span>':r.st==='novo'?'<b style="color:var(--warn)">✚ não lançado</b>':r.st==='dif'?`<b style="color:var(--crit)">≠ no app ${brl(r.it.v)}</b> (${esc(r.it.p.desc)})`:'<span class="note">— pagamento/crédito</span>'}</td></tr>`).join('')}</tbody></table></div>
     ${C.so.length?`<h4>No app, mas não veio na fatura (${C.so.length})</h4><div class="twrap short"><table><tbody>${C.so.map(i=>`<tr class="clk" data-ed="${i.p.id}"><td>${esc(i.p.desc)}</td><td class="num">${brl(i.v)}</td></tr>`).join('')}</tbody></table></div>`:''}`;
   $$('#ftRes [data-ci]').forEach(cb=>cb.onchange=()=>C.res[+cb.dataset.ci].marcar=cb.checked);
   $$('#ftRes [data-ed]').forEach(tr=>tr.onclick=()=>editarCompra(tr.dataset.ed));
@@ -4025,7 +4053,7 @@ const CAD_DEF = {
   cats:{t:'Categorias', k:'cats', cols:[['cat','Categoria','text'],['sub','Subcategoria','text'],['tipo','Tipo','tipo'],['limite','Limite mensal','money'],['ativa','Ativa','bool']], novo:()=>({cat:'',sub:'',tipo:'',limite:0,ativa:true}), ord:(a,b)=>(a.cat+'|'+a.sub).localeCompare(b.cat+'|'+b.sub,'pt')}
 };
 function renderCadastros(v){
-  const abas=[['contas','🏦 Contas'],['cartoes','💳 Cartões'],['cats','🏷️ Categorias'],['listas','📋 Listas'],['renomear','🔁 Renomear / juntar'],['saldo','💰 Saldo inicial']].filter(a=>!(semContas()&&(a[0]==='contas'||a[0]==='saldo')));
+  const abas=[['contas','🏦 Contas'],['cartoes','💳 Cartões'],['cats','🏷️ Categorias'],['listas','📋 Listas'],['renomear','🔁 Renomear / juntar'],['saldo','💰 Saldo inicial']].filter(a=>!(semContas()&&a[0]==='contas'));
   if(!abas.some(a=>a[0]===CAD_ABA)) CAD_ABA='cartoes';
   let body='';
   if(CAD_DEF[CAD_ABA]){ const d=CAD_DEF[CAD_ABA]; const R=live(d.k).sort(d.ord);
@@ -4037,7 +4065,7 @@ function renderCadastros(v){
     setTimeout(()=>{ $('#lsSalvar').onclick=async()=>{ const L2=Object.assign({},listas()); $$('[data-l]').forEach(t=>L2[t.dataset.l]=[...new Set(t.value.split('\n').map(x=>x.trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt'))); put('listas',L2); await commit('Listas salvas ✓'); }; },0);
   } else if(CAD_ABA==='renomear'){ body=renomearHTML(); setTimeout(()=>bindRenomear(v),0);
   } else { const c=cfg(); const anos=anosDisponiveis();
-    body=`<p class="note">Saldo somado de todas as contas no primeiro dia do ano. Se ficar vazio, o app usa o saldo final do ano anterior (ou a soma do saldo inicial das contas).</p><div class="fgrid fg4">${anos.map(y=>field(String(y),`<input data-y="${y}" inputmode="decimal" value="${esc(c.saldoIni&&c.saldoIni[y]!=null?fmtNumBR(c.saldoIni[y]):'')}" placeholder="${esc(fmtNumBR(saldoInicialAno(y))||'0,00')}">`)).join('')}</div><div class="fbtns"><button class="btn primary" id="siSalvar">Salvar</button></div>`;
+    body=`<p class="note">Saldo somado de todas as contas no primeiro dia do ano — <b>um número só</b>, sem precisar cadastrar cada banco. É o que faz o “Saldo atual” bater com a realidade. Se ficar vazio, o app usa o saldo final do ano anterior (ou a soma do saldo inicial das contas).</p><div class="fgrid fg4">${anos.map(y=>field(String(y),`<input data-y="${y}" inputmode="decimal" value="${esc(c.saldoIni&&c.saldoIni[y]!=null?fmtNumBR(c.saldoIni[y]):'')}" placeholder="${esc(fmtNumBR(saldoInicialAno(y))||'0,00')}">`)).join('')}</div><div class="fbtns"><button class="btn primary" id="siSalvar">Salvar</button></div>`;
     setTimeout(()=>{ $('#siSalvar').onclick=async()=>{ const c2=Object.assign({},cfg()); c2.saldoIni=Object.assign({},c2.saldoIni); $$('[data-y]').forEach(i=>{ if(i.value.trim()==='') delete c2.saldoIni[i.dataset.y]; else c2.saldoIni[i.dataset.y]=numBR(i.value); }); put('cfg',c2); await commit('Saldo inicial salvo ✓'); }; },0);
   }
   v.innerHTML=pageHead('Cadastros','Contas, cartões, categorias e listas usadas nos lançamentos.')+`<div class="ttools">${abas.map(([k,l])=>`<button class="chip" data-ca="${k}" aria-pressed="${CAD_ABA===k}">${l}</button>`).join('')}</div><div class="card frm">${body}</div>`;
@@ -4093,6 +4121,7 @@ function renderConfig(v){
       <p class="note">Cada pessoa tem a sua senha (vale em todos os aparelhos dela). Se esquecer, dá para refazer entrando de novo com a conta do Google.</p>
       <h3 style="margin-top:16px">Privacidade e preferências</h3>
       <label class="ckl"><input type="checkbox" id="cfSemContas" ${semContas()?'checked':''}> Não usar contas bancárias nem saldos (esconde os campos de conta e a aba Contas bancárias)</label>
+      <label class="ckl"><input type="checkbox" id="cfOcultaIni" ${lsGet('fin-ocultar-ini','1')==='1'?'checked':''}> Abrir o app com os valores ocultos (toque no olho no topo para mostrar) — vale para este aparelho</label>
       <label class="ckl"><input type="checkbox" id="cfComp" ${cfg().comprovante!==false?'checked':''}> Guardar a foto da nota como comprovante do lançamento</label>
       <label class="ckl"><input type="checkbox" id="cfOcr" ${cfg().ocr!==false?'checked':''}> Ler a nota automaticamente ao tirar a foto (valor, data e estabelecimento)</label>
       <div class="fbtns" style="margin-top:14px"><button class="btn danger" id="cfSairTudo">⏻ Sair do sistema neste aparelho</button></div>
@@ -4120,6 +4149,7 @@ function renderConfig(v){
   on('#cfLock',()=>bloquear());
   if($('#cfMin')) $('#cfMin').onchange=async e=>{ const c2=Object.assign({},cfg()); c2.senhas=Object.assign({},c2.senhas); c2.senhas[chaveSenha()]=Object.assign({},c2.senhas[chaveSenha()],{min:+e.target.value}); put('cfg',c2); await commit('Ok ✓'); };
   const tog=(id,k,inv)=>{ const e=$(id); if(e) e.onchange=async()=>{ const c2=Object.assign({},cfg()); c2[k]=inv?!e.checked:e.checked; put('cfg',c2); await commit('Preferência salva ✓'); renderSide(); renderConfig(v); }; };
+  $('#cfOcultaIni').onchange=e=>{ lsSet('fin-ocultar-ini',e.target.checked?'1':'0'); toast('Preferência salva ✓'); };
   tog('#cfSemContas','semContas'); tog('#cfComp','comprovante'); tog('#cfOcr','ocr');
   $('#cfCarro').onchange=async e=>{ const f=e.target.files[0]; if(f) await importarCarro(f); e.target.value=''; };
   on('#cfShare',async()=>{ const em=$('#cfEmail').value.trim(); if(!/@/.test(em)){ toast('Digite o e-mail'); return; } try{ await gShare(G.files.dados,em); if(G.files.fotos) await gShare(G.files.fotos,em); toast('Compartilhado com '+em+' ✓'); }catch(e){ toast(e.message); } });
@@ -4127,7 +4157,7 @@ function renderConfig(v){
   on('#cfGoogle',async()=>{ try{ await entrarGoogle(true); }catch(e){ toast(e.message); } });
   $('#cfAno').onchange=e=>{ ANO=+e.target.value; lsSet('fin-ano',String(ANO)); rebuild(); toast('Mostrando '+ANO); };
   $('#cfImp').onchange=async e=>{ const f=e.target.files[0]; if(f) await importarArquivo(f); e.target.value=''; };
-  $('#cfExp').onclick=exportarExcel;
+  $('#cfExp').onclick=abrirExportar;
   $('#cfBk').onclick=()=>baixar(new Blob([JSON.stringify(DB)],{type:'application/json'}),'financas-backup-'+hojeISO()+'.json');
   $('#cfRest').onchange=async e=>{ const f=e.target.files[0]; if(!f) return; try{ const d=JSON.parse(await f.text()); if(!d||!Array.isArray(d.lanc)) throw new Error('Arquivo não parece um backup do app'); if(!confirm('Juntar o backup com os dados atuais? (o que for mais recente prevalece)')) return; DB=mergeDB(DB,d); await commit('Backup restaurado ✓'); }catch(err){ toast(err.message); } e.target.value=''; };
   $('#cfSalvaG').onclick=()=>{ const o={clientId:$('#cfCid').value.trim(),apiKey:$('#cfKey').value.trim(),appId:$('#cfApp').value.trim()}; lsSet('fin-gcfg',JSON.stringify(o)); Object.assign(GCFG,o); G.tc=null; toast('Salvo neste aparelho'); renderConfig(v); };
@@ -4331,6 +4361,9 @@ const LOCK = {on:false, ultimo:Date.now(), tent:0};
 function bloquear(){
   if(!temSenha()){ toast('Crie uma senha em Configurações para poder bloquear'); setTab('config'); return; }
   LOCK.on=true; closeModal(); closeDetail(); document.body.classList.add('locked');
+  if(LOCK.esqueci && MODE.tipo==='google' && ME.email && nkey(ME.email)===nkey(chaveSenha())){ LOCK.esqueci=false;
+    const c2=Object.assign({},cfg()); c2.senhas=Object.assign({},c2.senhas); delete c2.senhas[chaveSenha()]; put('cfg',c2); const ca=lsJSON('fin-senha-cache',{}); delete ca[chaveSenha()]; lsSet('fin-senha-cache',JSON.stringify(ca));
+    LOCK.on=false; LOCK.ok=true; document.body.classList.remove('locked'); commit('Senha apagada. Crie a nova agora.').then(()=>{ setTab('config'); definirSenha(()=>setTab('config')); }); return; }
   if(LOCK.pre){ const s=LOCK.pre; LOCK.pre=''; confereSenha(s).then(ok=>{ if(ok) desbloquear(); else { const m=$('#lkMsg'); if(m){ m.classList.remove('hidden'); m.textContent='Senha errada'; } } }); }
   let el=$('#lockScr'); if(!el){ el=document.createElement('div'); el.id='lockScr'; document.body.appendChild(el); }
   el.innerHTML=`<div class="lock-box"><div class="logo-big">🔒</div><h2>Finanças da Casa</h2><p class="note">${esc(chaveSenha())}</p>
@@ -4383,12 +4416,21 @@ function prepOCR(src){
     img.onerror=()=>rej(new Error('imagem')); img.src=url; });
 }
 async function lerNota(src){
+  // 1º: leitura do Google (muito melhor), feita dentro da sua conta do Google
+  if(MODE.tipo==='google' && navigator.onLine && cfg().ocrGoogle!==false){
+    try{ if(!tokenOk()) await gLogin(''); const img=await fotoParaOCR(src); const txt=await gOCR(img); const r=interpretarNota(txt||''); r.fonte='Google'; return r; }
+    catch(e){ console.warn('OCR Google falhou, tentando no aparelho',e); }
+  }
+  // 2º: leitura no próprio aparelho (Tesseract)
   await loadScript(TESS);
   if(!OCRW){ OCRW = await Tesseract.createWorker('por', 1, {workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js', corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1', langPath:'https://tessdata.projectnaptha.com/4.0.0'});
     try{ await OCRW.setParameters({tessedit_pageseg_mode:'4', preserve_interword_spaces:'1'}); }catch(e){} }
   const {data} = await OCRW.recognize(await prepOCR(src));
-  return interpretarNota(data.text||'');
+  const r=interpretarNota(data.text||''); r.fonte='aparelho'; return r;
 }
+function fotoParaOCR(src){ return new Promise((res,rej)=>{ const img=new Image(); const url=typeof src==='string'?src:URL.createObjectURL(src);
+  img.onload=()=>{ const s=Math.min(1,2200/Math.max(img.width,img.height)); const c=document.createElement('canvas'); c.width=Math.round(img.width*s); c.height=Math.round(img.height*s); c.getContext('2d').drawImage(img,0,0,c.width,c.height); if(typeof src!=='string') URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg',.88)); };
+  img.onerror=()=>rej(new Error('imagem')); img.src=url; }); }
 /* números com 2 casas decimais, aceitando vírgula ou ponto (o OCR confunde) e milhar com ponto */
 function numsNota(s){
   const out=[]; const t=String(s).replace(/(\d)\s+([.,])\s*(\d)/g,'$1$2$3').replace(/[oO](?=\d)|(?<=\d)[oO]/g,'0');
@@ -4461,12 +4503,172 @@ function renderPagoAberto(v){
 TABS.splice(TABS.findIndex(t=>t.id==='fluxo')+1,0,{id:'pagoaberto',g:'visao',ic:'⏳',l:'Pago × em aberto',d:'Mês a mês: previsto, já pago/recebido e o que falta pagar ou receber.',render:renderPagoAberto});
 (TABS.find(t=>t.id==='contas')||{}).hide = () => semContas();
 
+/* ---------- ocultar valores (olho) ---------- */
+const OLHO_ABERTO='<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const OLHO_FECHADO='<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 10.5c2.6 3 5.8 4.5 9.5 4.5s6.9-1.5 9.5-4.5"/><path d="M6 13.4l-1.6 2.4M10 14.8l-.5 2.8M14 14.8l.5 2.8M18 13.4l1.6 2.4"/></svg>';
+function setOculto(on){ document.body.classList.toggle('ocultar',!!on); const b=$('#btnEye'); if(b){ b.innerHTML=on?OLHO_FECHADO:OLHO_ABERTO; b.title=on?'Mostrar os valores':'Ocultar os valores'; b.setAttribute('aria-pressed',on?'true':'false'); } }
+
+/* ---------- regras de preenchimento: repete a classificação da última vez com a mesma descrição ---------- */
+function autoPreencher(f){
+  if(f.edit || !f.desc.trim()) return false; const k=nkey(f.desc);
+  let mudou=false; const set=(campo,v)=>{ if(v && !String(f[campo]||'').trim()){ f[campo]=v; mudou=true; } };
+  if(f.t==='C'){ const p=live('compras').filter(x=>nkey(x.desc)===k).sort((a,b)=>(b.u||0)-(a.u||0))[0]; if(!p) return false;
+    set('cat',p.cat); set('sub',p.sub); if(!f.refC && p.ref){ f.refC=p.ref; mudou=true; } }
+  else { const l=live('lanc').filter(x=>x.t===f.t && nkey(x.desc)===k).sort((a,b)=>(b.u||0)-(a.u||0))[0]; if(!l) return false;
+    set('cat',l.cat); set('sub',l.sub); set('plano',l.plano); set('ref',l.ref); set('forma',l.forma); set('tipo',l.tipo); if(!semContas()) set('conta',l.conta); }
+  return mudou;
+}
+
+/* ---------- contas no campo de valor (ex.: 120+35,90) e calculadora ---------- */
+function contaBR(s){
+  const t=String(s).replace(/[R$\s]/g,'').replace(/[x×]/g,'*').replace(/÷/g,'/');
+  const expr=t.replace(/\d[\d.,]*/g,n=>{ let v=n; if(v.includes(',')) v=v.replace(/\./g,'').replace(',','.'); else if(/^\d{1,3}(\.\d{3})+$/.test(v)) v=v.replace(/\./g,''); return '('+(+v||0)+')'; });
+  if(!/^[\d.+\-*/() ]+$/.test(expr)) return 0;
+  try{ const r=Function('"use strict";return ('+expr+')')(); return isFinite(r)?Math.round(r*100)/100:0; }catch(e){ return 0; }
+}
+function calculadora(){
+  let ex=''; const alvo=document.activeElement&&document.activeElement.name==='valor'?document.activeElement:$('#frm [name=valor]')||$('#pq [name=valor]');
+  const keys=['C','(',')','÷','7','8','9','×','4','5','6','−','1','2','3','+','0',',','⌫','='];
+  modal(`<button class="btn small x" data-close>✕</button><h2>🧮 Calculadora</h2><div class="calc"><div class="calc-ex" id="clEx">&nbsp;</div><div class="calc-v" id="clV">0,00</div>
+    <div class="calc-k">${keys.map(k=>`<button class="btn ${k==='='?'primary':''}" data-k="${k}">${k}</button>`).join('')}</div>
+    ${alvo?'<button class="btn primary big" id="clUsar" style="width:100%;margin-top:8px">Usar este valor no lançamento</button>':''}</div>`, root=>{
+    const show=()=>{ $('#clEx').textContent=ex||' '; const v=contaBR(ex.replace(/−/g,'-')); $('#clV').textContent=fmtNumBR(v)||'0,00'; };
+    const press=k=>{ if(k==='C') ex=''; else if(k==='⌫') ex=ex.slice(0,-1); else if(k==='='){ const v=contaBR(ex.replace(/−/g,'-')); ex=v?String(fmtNumBR(v)).replace(/\./g,''):''; } else ex+=k; show(); };
+    root.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>press(b.dataset.k));
+    root.onkeydown=e=>{ const m={'*':'×','/':'÷','-':'−','Enter':'=','Backspace':'⌫','Escape':null,'.':','}; let k=e.key in m?m[e.key]:e.key; if(k&&(/^[\d(),+]$/.test(k)||['×','÷','−','=','⌫'].includes(k))){ e.preventDefault(); press(k); } };
+    root.tabIndex=-1; root.focus();
+    if($('#clUsar')) $('#clUsar').onclick=()=>{ const v=contaBR(ex.replace(/−/g,'-')); alvo.value=fmtNumBR(v); alvo.dispatchEvent(new Event('input',{bubbles:true})); closeModal(); };
+  });
+}
+
+/* ---------- últimos lançamentos (Início) ---------- */
+function ultimosHTML(){
+  const L=live('lanc').map(l=>({u:l.u,k:'lanc',id:l.id,d:l.desc||l.sub||l.plano||'(sem descrição)',v:+l.valor||0,t:l.t,by:l.by,data:l.data,info:l.t==='R'?'Entrada':'Saída'}))
+    .concat(live('compras').map(p=>({u:p.u,k:'compras',id:p.id,d:p.desc||'(compra)',v:+p.valor||0,t:'C',by:p.by,data:p.data,info:'💳 '+((cartaoById(p.cartao)||{}).nome||'Cartão')+(p.n>1?' · '+p.n+'x':'')})))
+    .filter(x=>x.u).sort((a,b)=>b.u-a.u).slice(0,8);
+  if(!L.length) return '';
+  setTimeout(()=>$$('[data-ult]').forEach(r=>r.onclick=()=>{ const [k,id]=r.dataset.ult.split('|'); if(k==='lanc') editarLanc(id); else editarCompra(id); }),0);
+  return `<div class="card" style="margin:12px 0"><h3>Últimos lançamentos</h3><div class="sub">Os 8 mais recentes, de quem lançou · toque para abrir</div><div class="twrap"><table><tbody>${L.map(x=>`<tr class="clk" data-ult="${x.k}|${x.id}"><td>${fmtDateS(parseISO(x.data))}</td><td><b>${esc(x.d)}</b><br><span class="note">${esc(x.info)}${x.by?' · por '+esc(x.by):''}</span></td><td class="num ${x.t==='R'?'st-good':''}">${brl(x.v)}</td></tr>`).join('')}</tbody></table></div></div>`;
+}
+
+/* ---------- exportar: escolher abas, ano e formato ---------- */
+function abrirExportar(){
+  const anos=anosDisponiveis();
+  const APP=[['ent','Entradas'],['sai','Saídas'],['comp','Compras de cartão'],['fat','Faturas'],['carro','Abastecimentos'],['cad','Cadastros (contas, cartões, categorias)']];
+  const PLA=[['ENTRADA','ENTRADA'],['SAIDA','SAÍDA (com as faturas dos cartões)'],['CARTOES','Uma aba por cartão (parcelas por mês)'],['CATEGORIAS','CATEGORIAS'],['CARRO','Carro']];
+  let fmt='app';
+  const lista=()=>(fmt==='app'?APP:PLA).map(([k,l])=>`<label class="ckl"><input type="checkbox" data-ex="${k}" checked> ${esc(l)}</label>`).join('');
+  modal(`<button class="btn small x" data-close>✕</button><h2>📤 Exportar para Excel</h2>
+    <div class="frm"><div class="fgrid">${field('Formato',`<select id="exFmt">${opt([['app','Tabelas do app (uma linha por lançamento)'],['planilha','Formato da planilha Contas_2026']],fmt)}</select>`)}${field('Ano',`<select id="exAno">${opt([['','Todos os anos']].concat(anos.map(y=>[String(y),String(y)])),String(ANO))}</select>`)}</div>
+    <div class="fbtns"><button class="btn small" id="exTodas">Marcar todas</button><button class="btn small" id="exNenhuma">Desmarcar</button></div>
+    <div id="exLista">${lista()}</div>
+    <p class="note" id="exNota">Cada item vira uma aba do arquivo. Marque só o que quiser (ex.: só Entradas).</p>
+    <div class="fbtns"><button class="btn primary big" id="exOk">Exportar</button></div></div>`, root=>{
+    $('#exFmt').onchange=e=>{ fmt=e.target.value; $('#exLista').innerHTML=lista(); $('#exNota').textContent=fmt==='app'?'Cada item vira uma aba do arquivo. Marque só o que quiser (ex.: só Entradas).':'Mesmas colunas da sua planilha, para copiar e colar na sua base.'; };
+    $('#exTodas').onclick=()=>root.querySelectorAll('[data-ex]').forEach(c=>c.checked=true);
+    $('#exNenhuma').onclick=()=>root.querySelectorAll('[data-ex]').forEach(c=>c.checked=false);
+    $('#exOk').onclick=()=>{ const sel=new Set([...root.querySelectorAll('[data-ex]:checked')].map(c=>c.dataset.ex)); if(!sel.size){ toast('Marque pelo menos uma aba'); return; }
+      const ano=$('#exAno').value; try{ exportar(fmt, sel, ano?+ano:null); closeModal(); }catch(e){ console.error(e); toast('Erro ao exportar: '+e.message); } };
+  });
+}
+function exportar(fmt, sel, ano){
+  const noAno=d=>!ano || (d && +String(d).slice(0,4)===ano);
+  const cn=id=>{ const c=cartaoById(id); return c?c.nome:''; };
+  const D=v=>v?parseISO(v):null; const sheets=[]; const nomeAba=s=>String(s).replace(/[\[\]:*?\/\\]/g,' ').slice(0,31);
+  const lanc=live('lanc').filter(l=>noAno(l.data)).sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+  if(fmt==='app'){
+    const L=t=>lanc.filter(l=>l.t===t).map(l=>({DATA:D(l.data), 'DESCRIÇÃO':l.desc, 'PLANO DE CONTAS':l.plano, REFERENTE:l.ref, CATEGORIA:l.cat, SUBCATEGORIA:l.sub, 'TIPO DE CONTA':l.tipo, FORMA:l.forma, STATUS:l.status, VALOR:+l.valor||0, CONTA:l.conta, 'DATA PAGAMENTO':D(l.dataPag), OBS:l.obs, 'LANÇADO POR':l.by}));
+    if(sel.has('ent')) sheets.push(['Entradas',L('R')]);
+    if(sel.has('sai')) sheets.push(['Saídas',L('D')]);
+    if(sel.has('comp')){ const C=live('compras').filter(p=>!ano||Object.keys(p.parc||{}).some(k=>+k.slice(0,4)===ano)).sort((a,b)=>cn(a.cartao).localeCompare(cn(b.cartao))||(a.data||'').localeCompare(b.data||''));
+      const meses=[...new Set(C.flatMap(p=>Object.keys(p.parc||{})))].filter(k=>!ano||+k.slice(0,4)===ano).sort();
+      sheets.push(['Compras cartão',C.map(p=>{ const o={'CARTÃO':cn(p.cartao),'DATA DA COMPRA':D(p.data),'LANÇAMENTO':p.desc,FORMA:p.forma,REFERENTE:p.ref,CATEGORIA:p.cat,SUBCATEGORIA:p.sub,'VALOR DA COMPRA':+p.valor||0,PARCELAS:p.n}; meses.forEach(m=>o[ymLabel(m)]=(p.parc||{})[m]||null); o.OBS=p.obs; o['LANÇADO POR']=p.by; return o; })]); }
+    if(sel.has('fat')){ const F=[]; live('cartoes').forEach(c=>{ const ms=new Set(mesesComParcelas(c.id)); live('faturas').filter(f=>f.cartao===c.id).forEach(f=>ms.add(f.ym)); [...ms].filter(ym=>!ano||+ym.slice(0,4)===ano).sort().forEach(ym=>{ const f=faturaRec(c.id,ym)||{}; F.push({'CARTÃO':c.nome,'MÊS':ymLabel(ym),TOTAL:totalFatura(c.id,ym),STATUS:f.status||'EM ABERTO','VALOR PAGO':f.valorPago??null,CONTA:f.conta||'','DATA PAGAMENTO':D(f.dataPag)}); }); }); sheets.push(['Faturas',F]); }
+    if(sel.has('carro')) sheets.push(['Abastecimentos',live('carro').filter(a=>noAno(a.data)).sort((a,b)=>a.data.localeCompare(b.data)).map(a=>({Data:D(a.data),'Tipo de combustível':a.comb,Posto:a.posto,Rede:a.rede,'Valor Combustível':a.preco||null,'Qtd Litros':a.litros||null,Valor:a.valor,'Hodômetro':a.hod||null,'Tanque cheio?':a.cheio?'Sim':'Não'}))]);
+    if(sel.has('cad')){ sheets.push(['Contas',live('contas').map(c=>({CONTA:c.nome,TIPO:c.tipo,'SALDO INICIAL':+c.saldoIni||0,ATIVA:c.ativa===false?'NÃO':'SIM'}))]);
+      sheets.push(['Cartões',live('cartoes').map(c=>({'CARTÃO':c.nome,FINAL:c.final,BANDEIRA:c.bandeira||'',LIMITE:+c.limite||null,VENCIMENTO:c.venc,'MELHOR DIA':c.melhor,'CONTA DE PAGAMENTO':c.conta,ATIVO:c.ativo===false?'NÃO':'SIM'}))]);
+      sheets.push(['Categorias',live('cats').map(c=>({CATEGORIA:c.cat,SUBCATEGORIA:c.sub,TIPO:c.tipo,'LIMITE MENSAL':+c.limite||null}))]); }
+    exportSheets('financas-da-casa'+(ano?'-'+ano:''),sheets); return;
+  }
+  // formato da planilha Contas_2026
+  const mov=t=>lanc.filter(l=>l.t===t).map(l=>{ const o={DATA:D(l.data),'PLANO DE CONTAS':l.plano,REFERENTE:l.ref,'DESCRIÇÃO':l.desc}; if(t==='D') o['DESCRIÇÃO DESPESA DIÁRIA']=l.descD||'';
+    Object.assign(o,{CATEGORIA:l.cat,SUBCATEGORIA:l.sub}); if(t==='D') o['TIPO DE CONTA']=l.tipo||''; o[t==='D'?'FOMA DE PAGAMENTO':'FORMA DE RECEBIMENTO']=l.forma||''; o.STATUS=l.status||''; o[t==='D'?'VALOR A PAGAR':'VALOR A RECEBER']=+l.valor||0; o.CONTA=l.conta||''; o.OBS=[l.obs,l.dataPag?'pago em '+fmtDateS(parseISO(l.dataPag)):''].filter(Boolean).join(' · '); return o; });
+  if(sel.has('ENTRADA')) sheets.push(['ENTRADA',mov('R')]);
+  if(sel.has('SAIDA')){ const S=mov('D');
+    live('cartoes').forEach(c=>{ const ms=new Set(mesesComParcelas(c.id)); live('faturas').filter(f=>f.cartao===c.id).forEach(f=>ms.add(f.ym));
+      [...ms].filter(ym=>!ano||+ym.slice(0,4)===ano).forEach(ym=>{ const tot=totalFatura(c.id,ym); const f=faturaRec(c.id,ym)||{}; if(!tot&&!f.status) return; const [y,m]=ym.split('-').map(Number);
+        S.push({DATA:new Date(y,m-1,Math.min(28,+c.venc||10)),'PLANO DE CONTAS':'CARTÃO CRÉDITO',REFERENTE:refFatura(c),'DESCRIÇÃO':'Fatura '+c.nome,'DESCRIÇÃO DESPESA DIÁRIA':'',CATEGORIA:'',SUBCATEGORIA:'','TIPO DE CONTA':'','FOMA DE PAGAMENTO':'CARTÃO DE CRÉDITO',STATUS:f.status||'EM ABERTO','VALOR A PAGAR':tot,CONTA:f.conta||c.conta||'',OBS:f.dataPag?fmtDateS(parseISO(f.dataPag)):''}); }); });
+    S.sort((a,b)=>(a.DATA||0)-(b.DATA||0)); sheets.push(['SAÍDA',S]); }
+  if(sel.has('CARTOES')) live('cartoes').forEach(c=>{ const C=live('compras').filter(p=>p.cartao===c.id && (!ano||Object.keys(p.parc||{}).some(k=>+k.slice(0,4)===ano))).sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+    if(!C.length) return; const ms=[...new Set(C.flatMap(p=>Object.keys(p.parc||{})))].filter(k=>!ano||+k.slice(0,4)>=ano).sort();
+    sheets.push([nomeAba(c.aba||c.nome),C.map(p=>{ const o={'Data da Compra':D(p.data),'Lançamento':p.desc,Forma:p.forma,Referente:p.ref,'Valor da Compra':+p.valor||0,'Qtd Parcelas':p.n||1,'Valor Parcelas':p.forma==='Parcelado'&&p.n?Math.round(p.valor/p.n*100)/100:+p.valor||0};
+      ms.forEach(m=>o[ymLabel(m)]=(p.parc||{})[m]||null); o.OBS=[p.cat,p.sub,p.obs].filter(Boolean).join(' · '); return o; })]); });
+  if(sel.has('CATEGORIAS')) sheets.push(['CATEGORIAS',live('cats').map(c=>({CATEGORIA:c.cat,SUBCATEGORIA:c.sub,TIPO:c.tipo,'LIMITE MENSAL':+c.limite||null,ATIVA:c.ativa===false?'NÃO':'SIM'}))]);
+  if(sel.has('CARRO')) sheets.push(['Carro',live('carro').filter(a=>noAno(a.data)).sort((a,b)=>a.data.localeCompare(b.data)).map(a=>({Data:D(a.data),'Tipo de combustível':a.comb,Posto:a.posto,Rede:a.rede,'Valor Combustível':a.preco||null,'Qtd Litros':a.litros||null,Valor:a.valor,'Hodômetro':a.hod||null,'Tanque cheio?':a.cheio?'Sim':'Não'}))]);
+  const seen=new Set(); sheets.forEach(s=>{ let n=s[0], i=2; while(seen.has(n.toLowerCase())) n=s[0].slice(0,28)+' '+(i++); s[0]=n; seen.add(n.toLowerCase()); });
+  exportSheets('Contas-formato-planilha'+(ano?'-'+ano:''),sheets);
+}
+
+/* ---------- fatura em PDF (Mercado Pago, PicPay, Nubank, Itaú…): lê o texto e monta as linhas ---------- */
+const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', PDFW='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+async function textoPDF(buf){
+  await loadScript(PDFJS); pdfjsLib.GlobalWorkerOptions.workerSrc=PDFW;
+  const doc=await pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise; const linhas=[];
+  for(let n=1;n<=doc.numPages;n++){ const pg=await doc.getPage(n); const tc=await pg.getTextContent();
+    const its=tc.items.filter(i=>i.str&&i.str.trim()).map(i=>({x:i.transform[4], y:i.transform[5], s:i.str}));
+    its.sort((a,b)=>b.y-a.y||a.x-b.x); const grupos=[];
+    its.forEach(i=>{ const g=grupos.find(g=>Math.abs(g.y-i.y)<=3); if(g) g.its.push(i); else grupos.push({y:i.y,its:[i]}); });
+    grupos.sort((a,b)=>b.y-a.y).forEach(g=>linhas.push(g.its.sort((a,b)=>a.x-b.x).map(i=>i.s.trim()).join('  '))); }
+  return linhas;
+}
+const MES3=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+function interpretarFaturaPDF(L){
+  const txt=L.join('\n'); let ym='';
+  const v=txt.match(/venc(?:imento|e em|e)?[^0-9\n]{0,25}(\d{1,2})\s*[\/.-]\s*(\d{1,2})\s*[\/.-]\s*(\d{2,4})/i);
+  if(v){ let y=+v[3]; if(y<100) y+=2000; ym=y+'-'+String(+v[2]).padStart(2,'0'); }
+  if(!ym){ const v2=norm(txt).match(/venc\w*[^0-9\n]{0,25}(\d{1,2})\s+(?:de\s+)?(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\w*\.?\s+(?:de\s+)?(\d{4})/); if(v2) ym=v2[3]+'-'+String(MES3.indexOf(v2[2])+1).padStart(2,'0'); }
+  if(!ym){ const v3=norm(txt).match(/fatura\s+(?:de\s+)?(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?:\s+(?:de\s+)?(\d{4}))?/); if(v3) ym=(v3[2]||new Date().getFullYear())+'-'+String(MESES_LONG.map(norm).indexOf(v3[1])+1).padStart(2,'0'); }
+  const [fy,fm]=ym?ym.split('-').map(Number):[new Date().getFullYear(),new Date().getMonth()+1];
+  const ignora=/^(total|subtotal|saldo|limite|pagamento|pagto|pgto|resumo|fatura|vencimento|valor (total|minimo|m[ií]nimo)|encargos financeiros|juros do rotativo previstos|data\b)/i;
+  const out=[];
+  L.forEach(raw=>{ const s=raw.replace(/\s+/g,' ').trim(); let m, d=null, resto='';
+    if((m=s.match(/^(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*(\d{2,4}))?\s+(.*)$/))){ let y=m[3]?+m[3]:null; if(y&&y<100) y+=2000; const mm=+m[2]; if(mm<1||mm>12) return; if(!y) y = mm>fm ? fy-1 : fy; d=new Date(y,mm-1,+m[1]); resto=m[4]; }
+    else if((m=norm(s).match(/^(\d{1,2})\s+(?:de\s+)?(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\w*\.?\s+(.*)$/))){ const mm=MES3.indexOf(m[2])+1; const y = mm>fm ? fy-1 : fy; d=new Date(y,mm-1,+m[1]); resto=s.replace(/^\S+\s+(de\s+)?\S+\s+/,''); }
+    else return;
+    // valor: último número com centavos da linha (com sinal de menos, se houver)
+    const vs=[...resto.matchAll(/(-|−)?\s*(?:R\$\s*)?(-|−)?\s*(\d{1,3}(?:\.\d{3})*|\d+),(\d{2})(\s*-)?(?!\d)/g)]; if(!vs.length) return;
+    const lv=vs[vs.length-1]; let val=+((lv[3].replace(/\./g,''))+'.'+lv[4]); if(lv[1]||lv[2]||lv[5]) val=-val;
+    let desc=resto.slice(0,lv.index).replace(/R\$\s*$/,'').trim();
+    if(!desc || ignora.test(desc)) return;
+    if(/^pagamento|pagto|pgto/i.test(desc)) val=-Math.abs(val);
+    if(/estorno|cr[eé]dito|devolu/i.test(desc)) val=-Math.abs(val);
+    // parcela: "Parcela 2 de 6", "2/6", "PARC 02/06"
+    let parc=''; const pm=desc.match(/(?:parcela|parc\.?)\s*(\d{1,2})\s*(?:de|\/)\s*(\d{1,2})/i)||desc.match(/(?:^|\s)(\d{1,2})\s*\/\s*(\d{1,2})(?:\s|$)/);
+    if(pm && +pm[2]>=+pm[1] && +pm[2]>1){ parc=pm[1]+'/'+pm[2]; desc=desc.replace(pm[0],' ').replace(/\s+-\s*$/,'').replace(/\s+/g,' ').trim(); }
+    out.push({data:d, desc, parc, valor:Math.round(val*100)/100});
+  });
+  return {ym, linhas:out};
+}
+async function lerFaturaPDF(file){
+  const buf=await file.arrayBuffer(); let L=[];
+  try{ L=await textoPDF(buf); }catch(e){ console.warn(e); }
+  let r=interpretarFaturaPDF(L);
+  // PDF escaneado (sem texto): pede a leitura do Google
+  if(r.linhas.length<1 && MODE.tipo==='google' && navigator.onLine){
+    if(!tokenOk()) await gLogin('');
+    const b64=await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.readAsDataURL(new Blob([buf],{type:'application/pdf'})); });
+    const t=await gOCR(b64); L=t.split(/\r?\n/); r=interpretarFaturaPDF(L);
+  }
+  if(!r.linhas.length) throw new Error('Não encontrei compras no PDF (linhas com data, descrição e valor). Se for possível, baixe a fatura em Excel/CSV.');
+  r.texto=L; return r;
+}
+
 /* =====================================================================
    INÍCIO DO APP: tela de entrada, login, abrir dados e navegação do celular
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.1.3';
+const APP_VER='1.2.2';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
@@ -4474,10 +4676,12 @@ function mostrarInicio(){
     <div class="logo-big">🏠💰</div><h2>Finanças da Casa</h2>
     ${gConfigurado()?`<form class="login frm" id="stForm" autocomplete="on">
       ${field('E-mail (conta Google)',`<input type="email" id="stEmail" name="username" autocomplete="username" value="${esc(em)}" placeholder="seu@gmail.com" required>`)}
-      ${field('Senha do app',`<input type="password" id="stSenha" name="password" autocomplete="current-password" placeholder="••••">`)}
-      <button class="btn primary big" type="submit" id="stGoogle">Entrar</button>
+      <div id="stSenhaWrap" class="${lsJSON('fin-senha-cache',{})[em]?'':'hidden'}">${field('Senha do app',`<input type="password" id="stSenha" name="password" autocomplete="current-password" placeholder="••••">`)}</div>
+      <div class="login-row"><label class="ckl" style="margin:0"><input type="checkbox" id="stManter" ${lsGet('fin-manter','1')==='1'?'checked':''}> Manter-me conectado</label><a href="#" id="stEsq">Esqueceu a senha?</a></div>
+      <button class="btn primary big" type="submit" id="stGoogle">Entrar com Google</button>
       <div class="fmsg warn hidden" id="stMsg"></div>
-      <p class="note">Ao entrar, o Google confirma a sua conta (janelinha do Google) e o app confere a sua senha. Ainda não criou senha? Deixe em branco e crie depois em Configurações.</p>
+      <p class="note">O Google confirma a sua conta numa janelinha rápida.<span id="stSenhaTx">${lsJSON('fin-senha-cache',{})[em]?' Depois o app confere a sua senha.':''}</span></p>
+      <p class="note" style="text-align:center">Primeiro acesso? <a href="#" id="stNovo">Criar meu acesso</a></p>
     </form>`:'<p class="note">⚠ O acesso ao Google ainda não foi configurado neste app (arquivo config.js).</p>'}
     <details class="st-teste"><summary>Modo de teste (sem Google)</summary>
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px"><button class="btn" id="stLocal">💾 Testar só neste aparelho</button>
@@ -4486,15 +4690,27 @@ function mostrarInicio(){
     <p class="note">Versão ${APP_VER}</p>
     <div id="libWarn"></div></div>`;
   if($('#stForm')) $('#stForm').onsubmit=async e=>{ e.preventDefault();
-    const email=$('#stEmail').value.trim().toLowerCase(), senha=$('#stSenha').value; const msg=$('#stMsg');
+    const email=$('#stEmail').value.trim().toLowerCase(), senha=$('#stSenhaWrap').classList.contains('hidden')?'':$('#stSenha').value; const msg=$('#stMsg');
     if(!/@/.test(email)){ msg.textContent='Digite o e-mail da conta Google'; msg.classList.remove('hidden'); return; }
     if(nkey(email)!==nkey(lsGet('fin-email',''))){ ['fin-gfiles','fin-ver','fin-fver','fin-fkeys'].forEach(k=>localStorage.removeItem(k)); G.files={}; }
-    lsSet('fin-email',email); LOCK.pre=senha||'';
-    try{ await entrarGoogle(false);
+    lsSet('fin-email',email); LOCK.pre=senha||''; lsSet('fin-manter',$('#stManter').checked?'1':'0');
+    try{ await entrarGoogle(false); try{ sessionStorage.setItem('fin-sessao','1'); }catch(_){}
       if(ME.email && nkey(ME.email)!==nkey(email)) toast('Você entrou com '+ME.email+' (diferente do e-mail digitado)');
       if(!temSenha() && senha) toast('Esta conta ainda não tem senha no app. Crie em Configurações.'); }
     catch(err){ console.error(err); msg.textContent=err.message; msg.classList.remove('hidden'); }
   };
+  if($('#stEmail')) $('#stEmail').oninput=()=>{ const tem=!!lsJSON('fin-senha-cache',{})[$('#stEmail').value.trim().toLowerCase()]; $('#stSenhaWrap').classList.toggle('hidden',!tem); $('#stSenhaTx').textContent=tem?' Depois o app confere a sua senha.':''; $('#stEsq').classList.toggle('hidden',!tem); };
+  if($('#stEsq') && !lsJSON('fin-senha-cache',{})[em]) $('#stEsq').classList.add('hidden');
+  if($('#stEsq')) $('#stEsq').onclick=async e=>{ e.preventDefault(); const email=$('#stEmail').value.trim().toLowerCase();
+    if(!/@/.test(email)){ toast('Digite o seu e-mail primeiro'); $('#stEmail').focus(); return; }
+    const op=await escolha('Esqueceu a senha?', `<p>Sem problema. Para criar uma senha nova, o Google confirma que é você (<b>${esc(email)}</b>). Depois o app abre direto em Configurações para você criar a nova senha.</p>`, [['ok','Confirmar com o Google']]);
+    if(op!=='ok') return; lsSet('fin-email',email); LOCK.esqueci=true; LOCK.pre=''; try{ await entrarGoogle(false); if(!temSenha()) { LOCK.esqueci=false; } }catch(err){ toast(err.message); } };
+  if($('#stNovo')) $('#stNovo').onclick=e=>{ e.preventDefault(); modal(`<button class="btn small x" data-close>✕</button><h2>Criar meu acesso</h2>
+    <ol class="passos"><li><b>Peça para quem já usa</b> compartilhar com o seu e-mail Google (Configurações → Compartilhar com a família) e incluir você como usuário de teste no Google Cloud.</li>
+    <li>Aqui, digite <b>o seu e-mail</b>, deixe a senha em branco e toque em <b>Entrar</b>. Na janelinha do Google, escolha a sua conta.</li>
+    <li>O app pergunta onde estão os dados: toque em <b>Abrir compartilhados</b> e escolha os arquivos <b>financas-dados.json</b> e <b>financas-fotos.json</b>.</li>
+    <li>Pronto: em <b>Configurações → Senha do app</b>, crie a sua senha. Nas próximas vezes, é só e-mail e senha.</li></ol>
+    <p class="note">É o primeiro de todos (ainda não existe nada)? No passo 3 escolha <b>Criar no meu Drive</b>.</p>`); };
   $('#stLocal').onclick=async()=>{ setMode('local'); DB=(await loadLocal())||emptyDB(); await abrirApp(); if(!DB.lanc.length&&!DB.compras.length) setTab('config'); };
   $('#stDemo').onclick=async()=>{ setMode('local'); const ex=await loadLocal(); if(ex&&(ex.lanc.length||ex.compras.length)&&!confirm('Já existem dados de teste neste aparelho. Substituir pelos dados de exemplo?')){ DB=ex; } else { DB=dbExemplo(); await saveLocal(false); } await abrirApp(); };
 }
@@ -4558,6 +4774,9 @@ $('#btnNovo').onclick=()=>{ FORM=null; setTab('lancar'); };
 $('#btnPend').onclick=()=>setTab('pendentes');
 $('#btnCfg').onclick=()=>setTab('config');
 $('#btnLock').onclick=()=>bloquear();
+$('#btnCalc').onclick=()=>calculadora();
+$('#btnEye').onclick=()=>setOculto(!document.body.classList.contains('ocultar'));
+setOculto(lsGet('fin-ocultar-ini','1')==='1');
 $('#btnSair').onclick=()=>sairDoSistema();
 $('#btnAno').onclick=()=>setTab('config');
 
@@ -4599,6 +4818,7 @@ async function boot(){
   setMode(m);
   DB = await loadLocal();
   if(m==='google'){
+    if(lsGet('fin-manter','1')==='0' && !sessionStorage.getItem('fin-sessao')){ mostrarInicio(); return; }
     if(!DB) DB=emptyDB();
     await abrirApp();
     if(!tokenOk()) SYNC.set('auth','Toque para reconectar ao Google');
