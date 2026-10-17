@@ -127,7 +127,7 @@ h1,h2,h3,h4{margin:0}
 .side .tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .menu-toggle{display:inline-flex}
 @media (min-width:981px){
-  .shell{transition:grid-template-columns .18s}
+  .shell{transition:none}
   body.side-collapsed .shell{grid-template-columns:58px 1fr}
   body.side-collapsed .side{padding:10px 6px 40px;overflow-x:hidden}
   body.side-collapsed .side .tx{display:none}
@@ -484,6 +484,9 @@ td.clk{cursor:pointer;text-decoration:underline dotted}
 body.no-app #btnLock,body.no-app #btnSair{display:none!important}
 @media (max-width:760px){ .fpres{grid-column:auto} #btnLock,#btnSair{padding:5px 7px} }
 @media (max-width:760px){ .topbar-in{flex-wrap:nowrap!important;gap:6px} .brand-t{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:15px} .brand-t small{display:none} .topbar .logo-mark{flex:none} }
+.bdg-im{display:inline-flex;gap:3px;align-items:center;vertical-align:middle}.bdg-im img{height:20px;width:auto;max-width:44px;border-radius:4px;object-fit:contain;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
+.bdg-im i{font-style:normal;font-size:8px;font-weight:700}
+.img-up{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.img-up img{height:36px;max-width:90px;object-fit:contain;border-radius:6px;background:#fff;box-shadow:0 0 0 1px var(--border)}
 
 </style>
 <script src="config.js"></script>
@@ -1061,7 +1064,7 @@ const series = n => css('--s'+n);
 function baseOpts(extra={}){
   const ink2=css('--ink-2'), muted=css('--muted'), grid=css('--grid');
   return Object.assign({
-    responsive:true, maintainAspectRatio:false, animation:{duration:200},
+    responsive:true, maintainAspectRatio:false, animation:{duration:200}, transitions:{resize:{animation:{duration:0}}},
     interaction:{mode:'nearest',intersect:false},
     plugins:{legend:{display:false}, tooltip:{backgroundColor:css('--surface'),titleColor:css('--ink'),bodyColor:ink2,footerColor:ink2,borderColor:css('--axis'),borderWidth:1,padding:10,boxPadding:4,usePointStyle:true}},
     scales:{ x:{grid:{display:false},border:{color:css('--axis')},ticks:{color:muted,font:{size:11},maxRotation:0}}, y:{grid:{color:grid},border:{display:false},ticks:{color:muted,font:{size:11}}} }
@@ -2295,7 +2298,7 @@ const CAR_RE=/automovel|combust|gasolin|etanol|abastec|posto|lavagem|lava.?jato|
 function carroItens(){
   const ano=STATE.ano, out=[];
   // 1) SAÍDA: plano/categoria/subcategoria de automóvel ou texto (descrição, OBS…) com palavras de carro
-  STATE.lanc.filter(o=>o.t==='D').forEach(o=>{ const isCar=(o.kw&&o.kw.carro)||CAR_RE.test(norm([o.plano,o.cat,o.sub,o.ref].join(' '))); if(!isCar) return;
+  STATE.lanc.filter(o=>o.t==='D'&&!(o.src&&o.src.k==='fatura')&&o.ano===ano).forEach(o=>{ const isCar=(o.kw&&o.kw.carro)||CAR_RE.test(norm([o.plano,o.cat,o.sub,o.ref].join(' '))); if(!isCar) return;
     const cat=(o.kw&&o.kw.carro)?o.kw.cat:(/combust|gasolin|posto|abastec/.test(norm(o.sub+' '+o.ref+' '+o.desc))?'COMBUSTÍVEL':/lavag/.test(norm(o.sub+' '+o.ref+' '+o.desc))?'LAVAGEM DO CARRO':/ipva|licenc/.test(norm(o.sub+' '+o.ref))?'IPVA / DOCUMENTOS':o.sub||o.ref||'AUTOMÓVEL');
     out.push({fonte:'SAÍDA',data:o.data,mes:o.mes,valor:o.valor,pago:o.pago,desc:o.nome+(o.obs?' · '+o.obs:''),cat,cartao:/cart|cr[eé]d/.test(norm(o.forma)),ref:o,linha:o.aba+' '+o.linha}); });
   // 2) Cartões: compras com texto de carro (lançamento, referente, anotações) — uma linha por parcela do mês
@@ -2303,18 +2306,25 @@ function carroItens(){
     const d=p.data&&p.data.getMonth()===i?p.data:new Date(ano,i,1);
     out.push({fonte:'Cartão '+c.nome,data:d,mes:i+1,valor:x,pago:true,desc:[p.lan,p.ref,p.nota].filter(Boolean).join(' · '),cat:p.cls.cat,ref:p,linha:p.aba+' '+p.linha}); }); }));
   // 3) Aba Carro: abastecimentos (servem para km/consumo; no custo só entram se não estiverem na SAÍDA nem nos cartões)
-  STATE.carro.forEach(a=>{ out.push({fonte:'Aba Carro',data:a.data,mes:a.data.getMonth()+1,valor:a.valor,pago:true,desc:[a.comb,a.posto].filter(Boolean).join(' · ')||'Abastecimento',cat:'COMBUSTÍVEL',ref:a,linha:'Carro '+(a.linha||'')}); });
+  STATE.carro.filter(a=>a.data.getFullYear()===ano).forEach(a=>{ out.push({fonte:'Aba Carro',data:a.data,mes:a.data.getMonth()+1,valor:a.valor,pago:true,desc:[a.comb,a.posto].filter(Boolean).join(' · ')||'Abastecimento',cat:'COMBUSTÍVEL',ref:a,linha:'Carro '+(a.linha||'')}); });
   // duplicidades: mesmo valor (±R$ 0,05) e data a até 5 dias — a SAÍDA prevalece, depois o cartão
   const near=(a,b)=>Math.abs(a.valor-b.valor)<=0.05 && Math.abs(a.data-b.data)<=5*DAY;
   const S=out.filter(x=>x.fonte==='SAÍDA'), K=out.filter(x=>x.fonte.startsWith('Cartão')), A=out.filter(x=>x.fonte==='Aba Carro');
   K.forEach(k=>{ const s=S.find(s=>!s.usado&&near(s,k)); if(s){ k.dup='já está em '+s.linha; s.usado=1; } });
   A.forEach(a=>{ const s=S.concat(K.filter(k=>!k.dup)).find(s=>!s.usadoA&&near(s,a)); if(s){ a.dup='já está em '+s.linha; s.usadoA=1; } });
+  // combustível: conta por UMA fonte só (aba Carro OU lançamentos), para não somar o mesmo abastecimento duas vezes
+  const modo=carroModo(A.length);
+  if(modo==='aba') S.concat(K).forEach(x=>{ if(!x.dup && x.cat==='COMBUSTÍVEL') x.dup='combustível contado pela aba Carro'; });
+  else A.forEach(a=>{ if(!a.dup) a.dup='abastecimento usado só para km/consumo'; });
+  out.combLanc=sum(S.concat(K).filter(x=>x.cat==='COMBUSTÍVEL'&&(!x.dup||/aba Carro/.test(x.dup))),x=>x.valor); out.combAba=sum(A,x=>x.valor); out.modo=modo;
   return out.sort((a,b)=>a.data-b.data);
+}
+function carroModo(temAba){ const m=(STATE.app&&typeof cfg==='function')?(cfg().carroComb||'auto'):'auto'; return m==='auto'?(temAba?'aba':'lanc'):m;
 }
 function renderCarro(v, rows){
   const I=carroItens(); const C=I.filter(x=>!x.dup);
   const tot=sum(C,x=>x.valor), comb=sum(C.filter(x=>x.cat==='COMBUSTÍVEL'),x=>x.valor), lav=sum(C.filter(x=>/LAVAGEM/.test(x.cat)),x=>x.valor);
-  const A=STATE.carro; const valor=sum(A,c=>c.valor), litros=sum(A,c=>c.litros); const hods=A.map(c=>c.hod).filter(Boolean); const km=hods.length>1?Math.max(...hods)-Math.min(...hods):0;
+  const A=STATE.carro.filter(a=>a.data.getFullYear()===STATE.ano); const valor=sum(A,c=>c.valor), litros=sum(A,c=>c.litros); const hods=A.map(c=>c.hod).filter(Boolean); const km=hods.length>1?Math.max(...hods)-Math.min(...hods):0;
   const litC=sum(A.slice(1),c=>c.litros), valC=sum(A.slice(1),c=>c.valor);
   const fontes=['SAÍDA',...STATE.cartoes.map(c=>'Cartão '+c.nome),'Aba Carro'].filter(f=>C.some(x=>x.fonte===f));
   const cats=agg(C,x=>x.cat,x=>x.valor);
@@ -2327,6 +2337,7 @@ function renderCarro(v, rows){
       ${kpi('Lavagem',brl(lav),'','aqua')}
       ${kpi('Km rodados',km?fmtInt.format(km)+' km':'—','Hodômetro da aba Carro','blue')}
       ${kpi('Consumo médio',litC?fmt1.format(km/litC)+' km/l':'—',km?'Custo/km (combustível): '+brl(valC/km):'Preencha hodômetro e litros na aba Carro','green')}
+      ${kpi('Combustível: de onde vem',I.modo==='aba'?'Aba Carro':'Lançamentos',`Aba Carro ${brl0(I.combAba)} · lançamentos ${brl0(I.combLanc)}${STATE.app?' · toque para trocar':''}`,'purple',STATE.app?'id="caModo" style="cursor:pointer"':'')}
       ${kpi('Repetidos ignorados',I.filter(x=>x.dup).length,brl(sum(I.filter(x=>x.dup),x=>x.valor))+' que já estavam em outra fonte','gray')}
     </div>
     <div class="grid">
@@ -2337,6 +2348,7 @@ function renderCarro(v, rows){
       ${card('c12','Todos os gastos do carro','Fonte, linha de origem e o que foi ignorado por repetição',`<div class="twrap"><table id="tCa"></table></div>`)}
     </div>`;
   vbar('chCaM',MESES_C,fontes.map((f,i)=>stackDS(f,MESES_C.map((_,m)=>sum(C.filter(x=>x.fonte===f&&x.mes===m+1),x=>x.valor)),series(i%8+1))),{money:true,stacked:true,footer:its=>'Total: '+brl(sum(its,c=>c.raw)),onClick:i=>{ const its=C.filter(x=>x.mes===i+1); modal(`<button class="btn small x" data-close>✕</button><h2>Carro · ${MESES_LONG[i]}</h2><div class="twrap" style="margin-top:8px"><table id="tCaMod"></table></div>`,()=>table('tCaMod',[{h:'Data',v:x=>x.data,f:fmtDateS},{h:'Fonte',v:x=>x.fonte},{h:'Descrição',v:x=>x.desc,cls:'wrap'},{h:'Tipo',v:x=>x.cat},{h:'Valor',v:x=>x.valor,num:1,f:brl}],its)); }});
+  if($('#caModo')) $('#caModo').onclick=async()=>{ const op=await escolha('Combustível: de onde vem o custo', `<p>Para não somar o mesmo abastecimento duas vezes, o combustível é contado por uma fonte só. As outras continuam valendo para km, consumo e preço do litro.</p><p>Aba Carro (abastecimentos): <b>${brl(I.combAba)}</b><br>Lançamentos (saídas e cartões): <b>${brl(I.combLanc)}</b></p>`, [['aba','Usar a aba Carro'],['lanc','Usar os lançamentos']]); if(!op) return; put('cfg',Object.assign({},cfg(),{carroComb:op})); await commit('Ok ✓'); };
   if($('#caNovo')) $('#caNovo').onclick=()=>{ const cs=live('cats').find(c=>/combust/.test(norm(c.sub))); abrirLancar({t:'D', status:'PAGO', cat:cs?cs.cat:'AUTOMÓVEL', sub:cs?cs.sub:'COMBUSTÍVEL', desc:'Combustível'}); };
   hbar('chCaS',cats.map(x=>x[0]),cats.map(x=>x[1]),series(4),moneyFmt,{share:true,empty:'Nenhum gasto de carro encontrado.'});
   const AP=A.filter(c=>c.preco);
@@ -3838,7 +3850,7 @@ function bindDetailActions(o){
 }
 
 /* ------------------------------ A LANÇAR (fotos de notas) ------------------------------ */
-let PQ = {valor:'', onde:'', nota:'', desc:'', data:'', foto:null, ocr:''};
+let PQ = {valor:'', onde:'', nota:'', desc:'', data:'', foto:null, ocr:'', arq:null, cands:[], texto:''};
 function renderPendentes(v){
   const P=live('pend').sort((a,b)=>(b.u||0)-(a.u||0));
   const ondeOpts=[['','—']].concat(cartoesAtivos().map(c=>['C:'+c.id,'💳 '+c.nome]), semContas()?[]:contasAtivas().map(c=>['A:'+c,'🏦 '+c]));
@@ -3847,7 +3859,9 @@ function renderPendentes(v){
   + `<div class="grid"><div class="card c5 frm" id="pq">
       <label class="foto-btn"><input type="file" accept="image/*" capture="environment" id="pqFile" hidden><span>📷 ${PQ.foto?'Trocar a foto':'Tirar foto da nota'}</span></label>
       ${PQ.foto?`<img class="nota-img" src="${PQ.foto}" alt="Prévia da foto">`:''}
-      ${PQ.foto?`<div class="fbtns"><button class="btn small" id="pqOcr" ${PQ.ocr==='lendo'?'disabled':''}>🔎 ${PQ.ocr==='lendo'?'Lendo a nota…':'Ler a nota de novo'}</button><span class="note" id="pqOcrMsg">${PQ.ocr&&PQ.ocr!=='lendo'?esc(PQ.ocr):PQ.ocr==='lendo'?'Pode levar alguns segundos (na 1ª vez o leitor é baixado).':''}</span></div>`:''}
+      ${PQ.foto?`<div class="fbtns"><button class="btn small" id="pqOcr" ${PQ.ocr==='lendo'?'disabled':''}>🔎 ${PQ.ocr==='lendo'?'Lendo a nota…':'Ler a nota de novo'}</button><span class="note" id="pqOcrMsg">${PQ.ocr&&PQ.ocr!=='lendo'?esc(PQ.ocr):PQ.ocr==='lendo'?'Pode levar alguns segundos (na 1ª vez o leitor é baixado).':''}</span></div>
+        ${PQ.cands&&PQ.cands.length>1?`<div class="ttools" style="margin:4px 0"><span class="note">Outros valores na nota — toque no certo:</span>${PQ.cands.map(x=>`<button class="chip" data-cand="${x}" aria-pressed="${fmtNumBR(x)===PQ.valor}">${brl(x)}</button>`).join('')}</div>`:''}
+        ${PQ.texto?`<details class="note"><summary>Ver o texto que o app leu</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:200px;overflow:auto">${esc(PQ.texto)}</pre></details>`:''}`:''}
       <div class="fgrid">
         ${field('Valor',`<input name="valor" inputmode="decimal" placeholder="0,00" value="${esc(PQ.valor)}">`)}
         ${field('Data',`<input type="date" name="data" value="${esc(PQ.data)}">`)}
@@ -3866,18 +3880,19 @@ function renderPendentes(v){
     </div></div>`;
   const root=$('#pq');
   root.querySelectorAll('input[name],select[name]').forEach(el=>el.oninput=el.onchange=()=>PQ[el.name]=el.value);
-  const ler=async()=>{ PQ.ocr='lendo'; renderPendentes(v); try{ const r=await lerNota(PQ.foto); const ach=[];
+  const ler=async()=>{ PQ.ocr='lendo'; renderPendentes(v); try{ const r=await lerNota(PQ.arq||PQ.foto); const ach=[]; PQ.cands=r.cands||[]; PQ.texto=r.texto||'';
       if(r.valor){ PQ.valor=fmtNumBR(r.valor); ach.push('valor'); } if(r.data){ PQ.data=r.data; ach.push('data'); } if(r.estab){ PQ.desc=r.estab; ach.push('estabelecimento'); }
       PQ.ocr = ach.length ? '✔ Li: '+ach.join(', ')+'. Confira.' : 'Não consegui ler. Preencha à mão (foto mais reta e com luz ajuda).'; }
     catch(e){ console.error(e); PQ.ocr='Leitura indisponível agora ('+(e.message||e)+'). Preencha à mão.'; }
     if(TAB==='pendentes') renderPendentes(v); };
-  $('#pqFile').onchange=async e=>{ const f=e.target.files[0]; if(!f) return; try{ PQ.foto=await fotoReduzida(f); renderPendentes(v); if(cfg().ocr!==false) ler(); }catch(err){ toast(err.message); } };
+  $('#pqFile').onchange=async e=>{ const f=e.target.files[0]; if(!f) return; try{ PQ.arq=f; PQ.cands=[]; PQ.texto=''; PQ.foto=await fotoReduzida(f); renderPendentes(v); if(cfg().ocr!==false) ler(); }catch(err){ toast(err.message); } };
   if($('#pqOcr')) $('#pqOcr').onclick=ler;
+  v.querySelectorAll('[data-cand]').forEach(b=>b.onclick=()=>{ root.querySelectorAll('input[name],select[name]').forEach(el=>PQ[el.name]=el.value); PQ.valor=fmtNumBR(+b.dataset.cand); renderPendentes(v); });
   $('#pqAdd').onclick=async()=>{
     if(!PQ.foto && !PQ.valor && !PQ.nota && !PQ.desc){ toast('Tire a foto ou escreva algo antes'); return; }
     const rec={data:PQ.data||hojeISO(), valor:numBR(PQ.valor), desc:PQ.desc.trim(), nota:PQ.nota.trim(), cartao:PQ.onde.startsWith('C:')?PQ.onde.slice(2):'', conta:PQ.onde.startsWith('A:')?PQ.onde.slice(2):''};
     if(PQ.foto){ rec.foto='f'+uid(); FOTOS[rec.foto]=PQ.foto; await saveFotosLocal(); SYNC.fotosMudou=1; }
-    put('pend',rec); PQ={valor:'',onde:'',nota:'',desc:'',data:'',foto:null,ocr:''}; await commit('Guardado na fila ✓'); renderPendentes(v);
+    put('pend',rec); PQ={valor:'',onde:'',nota:'',desc:'',data:'',foto:null,ocr:'',arq:null,cands:[],texto:''}; await commit('Guardado na fila ✓'); renderPendentes(v);
   };
   v.querySelectorAll('[data-lan]').forEach(b=>b.onclick=()=>{ const p=byId('pend',b.dataset.lan);
     abrirLancar(Object.assign({pend:p.id, valor:p.valor?fmtNumBR(p.valor):'', desc:p.desc||'', obs:p.nota||'', data:p.data||hojeISO()}, p.cartao?{t:'C',cartao:p.cartao}:p.conta?{t:'D',conta:p.conta,status:'PAGO'}:{t:'D',status:'PAGO'})); });
@@ -4001,10 +4016,10 @@ function mostrarConf(c){
 }
 
 /* ------------------------------ CADASTROS ------------------------------ */
-let CAD_ABA = 'contas';
+let CAD_ABA = 'contas', IMG_NOVA, BAND_NOVA=null;
 const CAD_DEF = {
-  contas:{t:'Contas bancárias', k:'contas', cols:[['nome','Conta','text'],['tipo','Tipo','text'],['saldoIni','Saldo inicial (opcional)','money'],['cor','Cor do ícone','cor'],['ativa','Ativa','bool']], novo:()=>({nome:'',tipo:'CORRENTE',saldoIni:0,cor:'',ativa:true}), ord:(a,b)=>a.nome.localeCompare(b.nome,'pt')},
-  cartoes:{t:'Cartões', k:'cartoes', cols:[['nome','Cartão','text'],['final','Final','text'],['bandeira','Bandeira','bandeira'],['cor','Cor do ícone','cor'],['limite','Limite (opcional)','money'],['venc','Dia de vencimento','int'],['melhor','Melhor dia de compra','int'],['conta','Conta de pagamento','conta'],['ref','Nome na SAÍDA (planilha)','text'],['ativo','Ativo','bool']], novo:()=>({nome:'',final:'',bandeira:'',cor:'',limite:0,venc:10,melhor:3,conta:'',ref:'',ativo:true}), ord:(a,b)=>a.nome.localeCompare(b.nome,'pt')},
+  contas:{t:'Contas bancárias', k:'contas', cols:[['nome','Conta','text'],['tipo','Tipo','text'],['saldoIni','Saldo inicial (opcional)','money'],['logo','Ícone (imagem)','img'],['cor','Cor do ícone (se não tiver imagem)','cor'],['ativa','Ativa','bool']], novo:()=>({nome:'',tipo:'CORRENTE',saldoIni:0,cor:'',ativa:true}), ord:(a,b)=>a.nome.localeCompare(b.nome,'pt')},
+  cartoes:{t:'Cartões', k:'cartoes', cols:[['nome','Cartão','text'],['final','Final','text'],['bandeira','Bandeira','bandeira'],['logo','Ícone do banco (imagem)','img'],['cor','Cor do ícone (se não tiver imagem)','cor'],['limite','Limite (opcional)','money'],['venc','Dia de vencimento','int'],['melhor','Melhor dia de compra','int'],['conta','Conta de pagamento','conta'],['ref','Nome na SAÍDA (planilha)','text'],['ativo','Ativo','bool']], novo:()=>({nome:'',final:'',bandeira:'',cor:'',limite:0,venc:10,melhor:3,conta:'',ref:'',ativo:true}), ord:(a,b)=>a.nome.localeCompare(b.nome,'pt')},
   cats:{t:'Categorias', k:'cats', cols:[['cat','Categoria','text'],['sub','Subcategoria','text'],['tipo','Tipo','tipo'],['limite','Limite mensal','money'],['ativa','Ativa','bool']], novo:()=>({cat:'',sub:'',tipo:'',limite:0,ativa:true}), ord:(a,b)=>(a.cat+'|'+a.sub).localeCompare(b.cat+'|'+b.sub,'pt')}
 };
 function renderCadastros(v){
@@ -4013,7 +4028,7 @@ function renderCadastros(v){
   let body='';
   if(CAD_DEF[CAD_ABA]){ const d=CAD_DEF[CAD_ABA]; const R=live(d.k).sort(d.ord);
     body=`<div class="fbtns"><button class="btn primary" id="cdNovo">+ Novo</button><span class="note">${R.length} cadastrado(s) · toque numa linha para editar</span></div><div class="twrap"><table id="tCad"></table></div>`;
-    setTimeout(()=>{ table('tCad',d.cols.filter(c=>c[2]!=='cor').map(([k,l,t],i)=>({h:l,v:r=>t==='bool'?(r[k]===false?'Não':'Sim'):r[k],num:t==='money'||t==='int'?1:0,f:t==='money'?x=>+x?brl(+x):'—':undefined,html:i===0&&CAD_ABA!=='cats'?r=>(CAD_ABA==='cartoes'?badgeCard(r):badgeConta(r.nome))+' '+esc(r[k]||''):undefined})),R,{onClick:r=>editarCad(CAD_ABA,r)}); $('#cdNovo').onclick=()=>editarCad(CAD_ABA,null); },0);
+    setTimeout(()=>{ table('tCad',d.cols.filter(c=>c[2]!=='cor'&&c[2]!=='img').map(([k,l,t],i)=>({h:l,v:r=>t==='bool'?(r[k]===false?'Não':'Sim'):r[k],num:t==='money'||t==='int'?1:0,f:t==='money'?x=>+x?brl(+x):'—':undefined,html:i===0&&CAD_ABA!=='cats'?r=>(CAD_ABA==='cartoes'?badgeCard(r):badgeConta(r.nome))+' '+esc(r[k]||''):undefined})),R,{onClick:r=>editarCad(CAD_ABA,r)}); $('#cdNovo').onclick=()=>editarCad(CAD_ABA,null); },0);
   } else if(CAD_ABA==='listas'){ const L=listas();
     const blocos=[['planoS','Plano de contas — saídas'],['planoE','Plano de contas — entradas'],['refS','Referentes — saídas'],['refE','Referentes — entradas'],['refCartao','Referentes no cartão'],['formas','Formas de pagamento']];
     body=`<p class="note">✏️ Dá para <b>editar, apagar ou incluir direto nos quadros</b> (uma opção por linha) e depois tocar em <b>Salvar listas</b>. Essas listas são só sugestões nos campos do lançamento. Para trocar um nome que <b>já está nos lançamentos</b> (ex.: juntar “alimentação” com “Alimentação”), use <b>🔁 Renomear / juntar</b>.</p><div class="grid">${blocos.map(([k,l])=>`<div class="card c4"><h3>${l}</h3><textarea class="lista-ta" data-l="${k}" rows="10">${esc((L[k]||[]).join('\n'))}</textarea></div>`).join('')}</div><div class="fbtns"><button class="btn primary" id="lsSalvar">Salvar listas</button></div>`;
@@ -4034,7 +4049,8 @@ function editarCad(aba, rec){
     if(t==='tipo') return field(l,`<select name="${k}">${opt(['FIXA','VARIÁVEL','FINANCEIRO','META'],val,'—')}</select>`);
     if(t==='money') return field(l,`<input name="${k}" inputmode="decimal" value="${esc(fmtNumBR(val))}">`);
     if(t==='cor') return field(l,`<div style="display:flex;gap:8px;align-items:center"><input name="${k}" type="color" value="${esc(val||corPadrao(r.nome||''))}" style="width:56px;padding:2px;height:38px"><span class="note">Sugerida pelo nome; mude se quiser.</span></div>`);
-    if(t==='bandeira') return field(l,`<select name="${k}">${opt(['Visa','Mastercard','Elo','American Express','Hipercard','Outra'],val,'—')}</select>`);
+    if(t==='bandeira') return field(l,`<select name="${k}">${opt(['Visa','Mastercard','Elo','American Express','Hipercard','Outra'],val,'—')}</select>`)+field('Imagem da bandeira',`<div class="img-up"><span id="bandPrev">${val&&(cfg().bandImg||{})[val]?`<img src="${(cfg().bandImg||{})[val]}">`:'<span class="note">sem imagem</span>'}</span><label class="btn small"><input type="file" accept="image/*" id="bandArq" hidden>Escolher imagem</label></div>`,'','Vale para todos os cartões dessa bandeira.');
+    if(t==='img') return field(l,`<div class="img-up"><span id="imgPrev">${val?`<img src="${val}">`:'<span class="note">sem imagem</span>'}</span><label class="btn small"><input type="file" accept="image/*" id="imgArq" hidden>Escolher imagem</label>${val?'<button type="button" class="btn small" id="imgTira">Tirar</button>':''}</div>`,'','Use um print ou foto do ícone (fica só no seu app).');
     if(t==='int') return field(l,`<input name="${k}" type="number" min="1" max="31" value="${esc(val||'')}">`);
     return field(l,`<input name="${k}" value="${esc(val||'')}" ${k==='cat'?'list="dlCatM"':''}>`); };
   modal(`<button class="btn small x" data-close>✕</button><h2>${rec?'Editar':'Novo'} · ${esc(d.t)}</h2><div class="fgrid frm" id="cdF">${d.cols.map(inp).join('')}</div>${aba==='cats'?dl('dlCatM',categorias()):''}
@@ -4043,7 +4059,13 @@ function editarCad(aba, rec){
     $('#cdOk').onclick=async()=>{ const o=Object.assign({},r); root.querySelectorAll('[name]').forEach(el=>{ const t=(d.cols.find(c=>c[0]===el.name)||[])[2]; o[el.name]= t==='bool'?el.value==='1' : t==='money'?numBR(el.value) : t==='int'?(+el.value||0) : el.value.trim(); });
       const nomeK=d.cols[0][0]; if(!o[nomeK]){ toast('Preencha '+d.cols[0][1]); return; }
       if(aba==='cats' && o.sub) live('cats').forEach(x=>{ if(x.id!==o.id && nkey(x.sub)===nkey(o.sub) && (+x.limite||0)!==(+o.limite||0)) put('cats',Object.assign({},x,{limite:o.limite})); });
+      if(IMG_NOVA!==undefined) o.logo=IMG_NOVA;
+      if(BAND_NOVA && o.bandeira){ const c2=Object.assign({},cfg()); c2.bandImg=Object.assign({},c2.bandImg,{[o.bandeira]:BAND_NOVA}); put('cfg',c2); }
       put(d.k,o); closeModal(); await commit('Salvo ✓'); };
+    IMG_NOVA=undefined; BAND_NOVA=null;
+    if($('#imgArq')) $('#imgArq').onchange=async e=>{ const f=e.target.files[0]; if(!f) return; try{ IMG_NOVA=await iconeReduzido(f); $('#imgPrev').innerHTML=`<img src="${IMG_NOVA}">`; }catch(err){ toast(err.message); } };
+    if($('#imgTira')) $('#imgTira').onclick=()=>{ IMG_NOVA=''; $('#imgPrev').innerHTML='<span class="note">sem imagem</span>'; };
+    if($('#bandArq')) $('#bandArq').onchange=async e=>{ const f=e.target.files[0]; if(!f) return; if(!root.querySelector('[name=bandeira]').value){ toast('Escolha a bandeira primeiro'); return; } try{ BAND_NOVA=await iconeReduzido(f); $('#bandPrev').innerHTML=`<img src="${BAND_NOVA}">`; }catch(err){ toast(err.message); } };
     if($('#cdDel')) $('#cdDel').onclick=async()=>{ const uso = aba==='cartoes' ? live('compras').filter(p=>p.cartao===r.id).length : 0;
       if(!confirm(uso?`Este cartão tem ${uso} compra(s). Excluir mesmo assim? (as compras continuam guardadas; prefira marcar como inativo)`:'Excluir este cadastro?')) return; del(d.k,r.id); closeModal(); await commit('Excluído'); };
   });
@@ -4072,7 +4094,7 @@ function renderConfig(v){
       <label class="ckl"><input type="checkbox" id="cfComp" ${cfg().comprovante!==false?'checked':''}> Guardar a foto da nota como comprovante do lançamento</label>
       <label class="ckl"><input type="checkbox" id="cfOcr" ${cfg().ocr!==false?'checked':''}> Ler a nota automaticamente ao tirar a foto (valor, data e estabelecimento)</label>
       <div class="fbtns" style="margin-top:14px"><button class="btn danger" id="cfSairTudo">⏻ Sair do sistema neste aparelho</button></div>
-      <p class="note">Sair desconecta a conta do Google e apaga a cópia guardada neste aparelho. Os dados continuam no Drive.</p></div>
+      <p class="note">Sair apaga a cópia guardada neste aparelho (os dados continuam no Drive). Para voltar: Entrar com Google e digitar a sua senha.</p></div>
     <div class="card c6 frm"><h3>Ano exibido nos painéis</h3><div class="fbtns"><select id="cfAno">${opt(anosDisponiveis().map(String),String(ANO))}</select></div>
       <h3 style="margin-top:16px">Planilha Excel</h3>
       <div class="fbtns"><label class="btn primary"><input type="file" id="cfImp" accept=".xlsx,.xlsm,.xls" hidden>📥 Importar Contas_2026 (substitui tudo)</label><button class="btn" id="cfExp">📤 Exportar para Excel</button></div>
@@ -4155,9 +4177,18 @@ function corPadrao(nome){ const n=norm(nome||''); const k=CORES_NOME.find(([re])
 function iniciais(nome){ const w=String(nome||'?').replace(/^(cart[aã]o|banco)\s+/i,'').split(/\s+/).filter(Boolean); return ((w[0]||'?')[0]+((w[1]||'')[0]||((w[0]||'')[1]||''))).toUpperCase(); }
 function textoSobre(cor){ const m=/^#([0-9a-f]{6})$/i.exec(cor||''); if(!m) return '#fff'; const v=parseInt(m[1],16); const l=(0.299*(v>>16)+0.587*((v>>8)&255)+0.114*(v&255)); return l>170?'#1b1b1b':'#fff'; }
 const BAND_TX={'Visa':'VISA','Mastercard':'MC','Elo':'ELO','American Express':'AMEX','Hipercard':'HIPER'};
-function badge(nome, cor, sub){ const c=cor||corPadrao(nome); return `<span class="bdg" style="background:${esc(c)};color:${textoSobre(c)}" title="${esc(nome||'')}">${esc(iniciais(nome))}${sub?`<i>${esc(sub)}</i>`:''}</span>`; }
-function badgeCard(c, curto){ if(!c) return ''; return badge(c.nome, c.cor, BAND_TX[c.bandeira]||''); }
-function badgeConta(nome){ const c=live('contas').find(x=>nkey(x.nome)===nkey(nome)); return badge(nome, c&&c.cor); }
+function badge(nome, cor, sub, logo, band){
+  if(logo) return `<span class="bdg-im" title="${esc(nome||'')}"><img src="${logo}" alt="">${band?`<img class="bd2" src="${band}" alt="">`:sub?`<i>${esc(sub)}</i>`:''}</span>`;
+  const c=cor||corPadrao(nome); if(band) return `<span class="bdg-im" title="${esc(nome||'')}"><span class="bdg" style="background:${esc(c)};color:${textoSobre(c)}">${esc(iniciais(nome))}</span><img class="bd2" src="${band}" alt=""></span>`; return `<span class="bdg" style="background:${esc(c)};color:${textoSobre(c)}" title="${esc(nome||'')}">${esc(iniciais(nome))}${sub?`<i>${esc(sub)}</i>`:''}</span>`; }
+function badgeCard(c, curto){ if(!c) return ''; const bi=c.bandeira&&(cfg().bandImg||{})[c.bandeira]; return badge(c.nome, c.cor, BAND_TX[c.bandeira]||'', c.logo, bi); }
+function badgeConta(nome){ const c=live('contas').find(x=>nkey(x.nome)===nkey(nome)); return badge(nome, c&&c.cor, '', c&&c.logo); }
+/* ícone enviado pelo usuário: reduzido para no máximo 96 px (fica leve no arquivo de dados) */
+function iconeReduzido(file, max=96){
+  return new Promise((res,rej)=>{ const img=new Image(); const url=URL.createObjectURL(file);
+    img.onload=()=>{ const s=Math.min(1,max/Math.max(img.width,img.height)); const c=document.createElement('canvas'); c.width=Math.max(1,Math.round(img.width*s)); c.height=Math.max(1,Math.round(img.height*s));
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(url); let d=c.toDataURL('image/png'); if(d.length>40000) d=c.toDataURL('image/webp',.85); res(d); };
+    img.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error('Não consegui ler a imagem')); }; img.src=url; });
+}
 
 /* ---------- fotos: ver e baixar ---------- */
 function verFoto(fid){ if(!fid||!FOTOS[fid]){ toast('A foto ainda não chegou neste aparelho (sincronizando)'); return; }
@@ -4267,7 +4298,9 @@ function bindRenomear(v){
 
 /* ---------- senha do app (tranca local, por pessoa) ---------- */
 const chaveSenha = () => (MODE.tipo==='google' ? (ME.email||lsGet('fin-email','')) : 'este aparelho') || 'este aparelho';
-const senhaRec = () => DB && (cfg().senhas||{})[chaveSenha()];
+const senhaRec = () => { const k=chaveSenha(), cache=lsJSON('fin-senha-cache',{}); const c=DB&&live('cfg').find(r=>r.id==='cfg');
+  if(c && c.u){ const r=(c.senhas||{})[k]; if(r){ if(!cache[k]||cache[k].h!==r.h){ cache[k]=r; lsSet('fin-senha-cache',JSON.stringify(cache)); } return r; } if(cache[k] && c.u>(cache[k].t||0)){ delete cache[k]; lsSet('fin-senha-cache',JSON.stringify(cache)); } return cache[k]||null; }
+  return cache[k]||null; };
 const temSenha = () => !!(senhaRec() && senhaRec().h);
 const minBloq = () => (senhaRec()&&+senhaRec().min) || 5;
 const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -4288,7 +4321,7 @@ async function definirSenha(done){
     <div class="fgrid frm">${field('Nova senha',`<input type="password" id="nsA" autocomplete="new-password">`)}${field('Repita a senha',`<input type="password" id="nsB" autocomplete="new-password">`)}</div>
     <div class="fbtns"><button class="btn primary" id="nsOk">Salvar senha</button></div>`, ()=>{
     $('#nsOk').onclick=async()=>{ const a=$('#nsA').value, b=$('#nsB').value; if(a.length<4){ toast('Use pelo menos 4 caracteres'); return; } if(a!==b){ toast('As duas senhas não são iguais'); return; }
-      const h=await hashSenha(a); const c2=Object.assign({},cfg()); c2.senhas=Object.assign({},c2.senhas); c2.senhas[chaveSenha()]=Object.assign({min:5},(c2.senhas||{})[chaveSenha()],h); put('cfg',c2);
+      const h=Object.assign(await hashSenha(a),{t:Date.now()}); const c2=Object.assign({},cfg()); c2.senhas=Object.assign({},c2.senhas); c2.senhas[chaveSenha()]=Object.assign({min:5},(c2.senhas||{})[chaveSenha()],h); put('cfg',c2);
       closeModal(); LOCK.ultimo=Date.now(); LOCK.ok=true; await commit('Senha salva ✓'); done&&done(); };
     setTimeout(()=>$('#nsA').focus(),50); });
 }
@@ -4321,36 +4354,58 @@ async function sairDoSistema(semPerguntar){
   const pend = MODE.tipo==='google' && !!(await lget('dirty:'+MODE.key));
   if(!semPerguntar || pend){
     const msg = MODE.tipo==='google'
-      ? (pend?'⚠ Há alterações que ainda não foram enviadas ao Drive. Vou tentar enviar antes de sair.\n\n':'')+'Sair do sistema neste aparelho? A conta do Google é desconectada e a cópia deste aparelho é apagada. Os dados continuam no Drive.'
+      ? (pend?'⚠ Há alterações que ainda não foram enviadas ao Drive. Vou tentar enviar antes de sair.\n\n':'')+'Sair do sistema neste aparelho? A cópia deste aparelho é apagada (os dados continuam no Drive). Para voltar: Entrar com Google + a sua senha.'
       : 'Sair do modo de teste? Os dados de teste deste aparelho são apagados.';
     if(!confirm(msg)) return;
   }
   if(pend){ try{ await SYNC.run(); }catch(e){} if(await lget('dirty:'+MODE.key)){ if(!confirm('Não consegui enviar as últimas alterações (sem internet ou sessão expirada). Sair mesmo assim e perder essas alterações?')) return; } }
-  try{ if(G.token && window.google && google.accounts) google.accounts.oauth2.revoke(G.token,()=>{}); }catch(e){}
   G.token=''; try{ sessionStorage.removeItem('fin-tk'); }catch(e){}
   for(const k of ['google','local']){ await ldel('db:'+k); await ldel('fotos:'+k); await ldel('dirty:'+k); }
-  ['fin-mode','fin-gfiles','fin-ver','fin-fver','fin-fkeys','fin-lastsync','fin-email','fin-nome'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
+  ['fin-mode','fin-gfiles','fin-ver','fin-fver','fin-fkeys','fin-lastsync'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
   location.hash=''; location.reload();
 }
 
 /* ---------- leitura da nota no próprio aparelho (Tesseract.js, sem enviar a foto para ninguém) ---------- */
 const TESS='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
 let OCRW=null;
-async function lerNota(dataURL){
+/* prepara a imagem para leitura: maior, em tons de cinza e com mais contraste */
+function prepOCR(src){
+  return new Promise((res,rej)=>{ const img=new Image(); const url=typeof src==='string'?src:URL.createObjectURL(src);
+    img.onload=()=>{ const s=Math.min(2.2, 2000/Math.max(img.width,img.height)); const c=document.createElement('canvas'); c.width=Math.round(img.width*s); c.height=Math.round(img.height*s);
+      const g=c.getContext('2d'); g.drawImage(img,0,0,c.width,c.height); const d=g.getImageData(0,0,c.width,c.height), a=d.data;
+      let mn=255,mx=0; for(let k=0;k<a.length;k+=4){ const y=.299*a[k]+.587*a[k+1]+.114*a[k+2]; a[k]=y; if(y<mn) mn=y; if(y>mx) mx=y; }
+      const lo=mn+(mx-mn)*.08, hi=mx-(mx-mn)*.12, f=255/Math.max(1,hi-lo);
+      for(let k=0;k<a.length;k+=4){ const y=Math.max(0,Math.min(255,(a[k]-lo)*f)); a[k]=a[k+1]=a[k+2]=y; }
+      g.putImageData(d,0,0); if(typeof src!=='string') URL.revokeObjectURL(url); res(c.toDataURL('image/png')); };
+    img.onerror=()=>rej(new Error('imagem')); img.src=url; });
+}
+async function lerNota(src){
   await loadScript(TESS);
-  if(!OCRW) OCRW = await Tesseract.createWorker('por', 1, {workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js', corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1', langPath:'https://tessdata.projectnaptha.com/4.0.0'});
-  const {data} = await OCRW.recognize(dataURL);
+  if(!OCRW){ OCRW = await Tesseract.createWorker('por', 1, {workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js', corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1', langPath:'https://tessdata.projectnaptha.com/4.0.0'});
+    try{ await OCRW.setParameters({tessedit_pageseg_mode:'4', preserve_interword_spaces:'1'}); }catch(e){} }
+  const {data} = await OCRW.recognize(await prepOCR(src));
   return interpretarNota(data.text||'');
 }
+/* números com 2 casas decimais, aceitando vírgula ou ponto (o OCR confunde) e milhar com ponto */
+function numsNota(s){
+  const out=[]; const t=String(s).replace(/(\d)\s+([.,])\s*(\d)/g,'$1$2$3').replace(/[oO](?=\d)|(?<=\d)[oO]/g,'0');
+  for(const m of t.matchAll(/(?<![\d.,\/])(\d{1,3}(?:[.\s]\d{3})+|\d+)\s?[.,]\s?(\d{2})(?![\d\/%])/g)){ const v=+(m[1].replace(/[.\s]/g,'')+'.'+m[2]); if(v>0 && v<100000) out.push(v); }
+  return out;
+}
 function interpretarNota(txt){
-  const L=txt.split(/\r?\n/).map(s=>s.trim()).filter(Boolean); const out={valor:0,data:'',estab:''};
-  const num=s=>{ const m=String(s).replace(/\s/g,'').match(/(\d{1,3}(?:[.\s]\d{3})*|\d+)[,](\d{2})(?!\d)/g); return m?m.map(x=>numBR(x)):[]; };
-  // valor: linha com TOTAL / VALOR A PAGAR (prefere "a pagar" e "total"), senão o maior valor da nota
-  const pri=[/valor\s*a\s*pagar|total\s*a\s*pagar/i,/valor\s*total|total\s*r\$|^total\b|\btotal\b/i,/valor\s*pago|cart[aã]o|cr[eé]dito|d[eé]bito|pix/i];
-  for(const re of pri){ for(let i=0;i<L.length && !out.valor;i++){ if(re.test(L[i]) && !/subtotal|desconto|troco|tributo|imposto|lei 12/i.test(L[i])){ const v=num(L[i]).concat(num(L[i+1]||'')); if(v.length) out.valor=v[0]; } } if(out.valor) break; }
-  if(!out.valor){ const t=L.filter(s=>!/troco|cnpj|cpf|tributo/i.test(s)).flatMap(num).filter(v=>v<100000); if(t.length) out.valor=Math.max(...t); }
+  const L=txt.split(/\r?\n/).map(s=>s.trim()).filter(Boolean); const out={valor:0,data:'',estab:'',cands:[],texto:txt};
+  const ruim=/sub\s*total|desconto|acr[eé]sc|troco|tribut|imposto|aprox|lei\s*12|qtd|quant|itens|ite\b|unit|vl\s*item|cnpj|cpf|chave|protocolo|s[eé]rie|n[º°o]\s*\d/i;
+  const regras=[[/valor\s*a\s*pagar|total\s*a\s*pagar|a\s*pagar\s*r?\$?/i,5],[/valor\s*total|total\s*geral|total\s*r\$|^\W*total\b/i,4],[/valor\s*pago|pago\s*r\$/i,3],[/cart[aã]o|cr[eé]dito|d[eé]bito|\bpix\b|dinheiro/i,2],[/\btotal\b/i,1]];
+  const pont=new Map(); const add=(v,p)=>pont.set(v,(pont.get(v)||0)+p);
+  L.forEach((s,i)=>{ if(ruim.test(s)) return; for(const [re,p] of regras){ if(re.test(s)){ let v=numsNota(s); if(!v.length && i+1<L.length && /^\W*(r\$)?\s*[\d.,\s]+$/i.test(L[i+1])) v=numsNota(L[i+1]); v.forEach(x=>add(x,p)); break; } } });
+  // o mesmo valor aparecendo em vários lugares (total, pago, cartão) reforça
+  const todos=L.filter(s=>!/cnpj|cpf|chave|protocolo/i.test(s)).flatMap(numsNota); const freq=new Map(); todos.forEach(v=>freq.set(v,(freq.get(v)||0)+1));
+  pont.forEach((p,v)=>pont.set(v,p+Math.min(3,(freq.get(v)||1)-1)));
+  let rank=[...pont].sort((a,b)=>b[1]-a[1]||b[0]-a[0]).map(x=>x[0]);
+  if(!rank.length && todos.length) rank=[...new Set(todos)].sort((a,b)=>b-a);
+  out.valor=rank[0]||0; out.cands=[...new Set(rank.concat([...freq.keys()].sort((a,b)=>(freq.get(b)-freq.get(a))||b-a)))].slice(0,6);
   // data
-  for(const s of L){ const m=s.match(/(\d{2})[\/.-](\d{2})[\/.-](\d{2,4})/); if(m){ let y=+m[3]; if(y<100) y+=2000; const d=new Date(y,+m[2]-1,+m[1]); if(d.getMonth()===+m[2]-1 && y>=2015 && d<=new Date(Date.now()+86400000)){ out.data=isoLocal(d); break; } } }
+  for(const s of L){ const m=s.match(/(\d{2})\s?[\/.-]\s?(\d{2})\s?[\/.-]\s?(\d{2,4})/); if(m){ let y=+m[3]; if(y<100) y+=2000; const d=new Date(y,+m[2]-1,+m[1]); if(d.getMonth()===+m[2]-1 && y>=2015 && d<=new Date(Date.now()+86400000)){ out.data=isoLocal(d); break; } } }
   // estabelecimento: primeiras linhas com letras (pula títulos genéricos)
   const pula=/cupom|fiscal|documento|nfc|danfe|extrato|cnpj|cpf|^ie\b|inscri|endere|rua |av\.|avenida|cep|tel|fone|www|http|consumidor|eletr[oô]nic|via |comprovante|^\W*$/i;
   for(const s of L.slice(0,8)){ const so=s.replace(/[^A-Za-zÀ-ÿ0-9&.\- ]/g,' ').replace(/\s+/g,' ').trim(); if(so.replace(/[^A-Za-zÀ-ÿ]/g,'').length>=4 && !pula.test(so)){ out.estab=so.slice(0,40).replace(/\b(ltda|me|eireli|s\/?a|epp)\b\.?/ig,'').trim(); break; } }
@@ -4413,7 +4468,9 @@ function mostrarInicio(){
   $('#drop').innerHTML=`<div class="start">
     <div class="logo-big">🏠💰</div><h2>Finanças da Casa</h2>
     <p>Lançamentos, cartões, faturas e painéis da família — no computador e no celular.</p>
-    <button class="btn primary big" id="stGoogle" ${gConfigurado()?'':'disabled'}>☁️ Entrar com Google${lsGet('fin-email','')?' ('+esc(lsGet('fin-email',''))+')':''}</button>
+    ${lsGet('fin-email','')?`<p style="margin:0">Conta: <b>${esc(lsGet('fin-email',''))}</b></p>`:''}
+    <button class="btn primary big" id="stGoogle" ${gConfigurado()?'':'disabled'}>☁️ Entrar com Google</button>
+    ${lsJSON('fin-senha-cache',{})[lsGet('fin-email','')]?'<p class="note">🔒 Depois de entrar, o app pede a sua senha.</p>':''}
     ${gConfigurado()&&lsGet('fin-email','')?'<button class="btn ghost small" id="stOutra">Entrar com outra conta Google</button>':''}
     ${gConfigurado()?'<p class="note">Os dados ficam numa pasta do <b>seu</b> Google Drive. O app só enxerga os arquivos dele.</p>':'<p class="note">⚠ O acesso ao Google ainda não foi configurado neste app (arquivo config.js). Siga o guia, ou teste abaixo.</p>'}
     <div class="sep"><span>ou</span></div>
