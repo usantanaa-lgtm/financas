@@ -506,6 +506,9 @@ body.ocultar .comp-v{filter:blur(7px)}
 .pl-t input{border:1px solid var(--border);border-radius:7px;padding:6px 8px;background:var(--surface);font-size:14px}
 .pl-t .pl-nome{width:100%;min-width:150px;font-weight:600}.pl-t .pl-v{width:110px;text-align:right}
 body.ocultar .pl-t .pl-v{filter:blur(6px)}body.ocultar .pl-t .pl-v:focus{filter:none}
+.side a[data-act]{cursor:pointer}.side-ver{font-size:11px;color:var(--muted);padding:10px 12px}
+@media (max-width:980px){ .side{height:auto!important;bottom:0;max-height:100dvh;overflow-y:auto;padding-bottom:calc(110px + env(safe-area-inset-bottom))!important;-webkit-overflow-scrolling:touch} }
+@media (max-width:760px){ body:not(.no-app) .main{padding-bottom:calc(110px + env(safe-area-inset-bottom))!important} #drawer{padding-bottom:calc(100px + env(safe-area-inset-bottom))} }
 
 </style>
 <script src="config.js"></script>
@@ -1369,6 +1372,9 @@ let TAB='inicio';
 function renderSide(){
   const s=$('#side'); const col=document.body.classList.contains('side-collapsed');
   s.innerHTML=`<a data-tab="inicio" title="Início" ${TAB==='inicio'?'aria-current="page"':''}><span class="ic">🏠</span><span class="tx">Início</span></a>`+GROUPS.map(([g,gl])=>`<h5>${gl}</h5>`+TABS.filter(t=>t.g===g&&!(t.hide&&t.hide())).map(t=>`<a data-tab="${t.id}" title="${esc(t.l)}" ${TAB===t.id?'aria-current="page"':''}><span class="ic">${t.ic}</span><span class="tx">${esc(t.l)}</span></a>`).join('')).join('');
+  if(typeof sairDoSistema==='function' && !document.body.classList.contains('no-app')){
+    s.insertAdjacentHTML('beforeend',`<h5>Conta</h5>${(typeof temSenha==='function'&&temSenha())?'<a data-act="lock" title="Bloquear"><span class="ic">🔒</span><span class="tx">Bloquear o app</span></a>':''}<a data-act="sair" title="Sair"><span class="ic">⏻</span><span class="tx">Sair do sistema</span></a><div class="side-ver">Versão ${typeof APP_VER!=='undefined'?APP_VER:''}</div>`);
+    s.querySelectorAll('[data-act]').forEach(a=>a.onclick=()=>{ document.body.classList.remove('menu-open'); if(a.dataset.act==='sair') sairDoSistema(); else bloquear(); }); }
   s.querySelectorAll('[data-tab]').forEach(a=>a.onclick=()=>{ document.body.classList.remove('menu-open'); setTab(a.dataset.tab); });
 }
 function toggleSide(force){ const on=force!=null?force:!document.body.classList.contains('side-collapsed'); document.body.classList.toggle('side-collapsed',on); lsSet('fin-side',on?'1':'0'); renderSide(); }
@@ -4826,7 +4832,7 @@ TABS.splice(TABS.findIndex(t=>t.id==='orcamento'),0,{id:'planejar',g:'gastos',ic
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.3.0';
+const APP_VER='1.3.1';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
