@@ -487,6 +487,8 @@ body.no-app #btnLock,body.no-app #btnSair{display:none!important}
 .bdg-im{display:inline-flex;gap:3px;align-items:center;vertical-align:middle}.bdg-im img{height:20px;width:auto;max-width:44px;border-radius:4px;object-fit:contain;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
 .bdg-im i{font-style:normal;font-size:8px;font-weight:700}
 .img-up{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.img-up img{height:36px;max-width:90px;object-fit:contain;border-radius:6px;background:#fff;box-shadow:0 0 0 1px var(--border)}
+.login{display:flex;flex-direction:column;gap:10px;text-align:left}.login .btn{justify-content:center}
+.st-teste{text-align:left;margin-top:8px;font-size:14px}.st-teste summary{cursor:pointer;color:var(--muted)}
 
 </style>
 <script src="config.js"></script>
@@ -4074,7 +4076,7 @@ function editarCad(aba, rec){
 /* ------------------------------ CONFIGURAÇÕES ------------------------------ */
 function renderConfig(v){
   const g=MODE.tipo==='google', c=cfg();
-  v.innerHTML=pageHead('Configurações','Onde os dados ficam, compartilhar com a família, importar a planilha, exportar e backup.')+`<div class="grid">
+  v.innerHTML=pageHead('Configurações','Onde os dados ficam, compartilhar com a família, importar a planilha, exportar e backup. · <b>Versão '+APP_VER+'</b>')+`<div class="grid">
     <div class="card c6 frm"><h3>Onde os dados estão</h3>
       ${g?`<p>☁️ <b>Google Drive</b> — ${esc(ME.email||lsGet('fin-email',''))}<br><span class="note">Arquivos: ${G.files.dados?'financas-dados.json ✔':'—'} ${G.files.fotos?'· financas-fotos.json ✔':''}${SYNC.last?' · sincronizado às '+new Date(SYNC.last).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):''}</span></p>
         <div class="fbtns"><button class="btn" id="cfSync">🔄 Sincronizar agora</button><button class="btn" id="cfRelog">🔑 Reconectar</button><button class="btn" id="cfSair">Sair desta conta</button></div>
@@ -4329,6 +4331,7 @@ const LOCK = {on:false, ultimo:Date.now(), tent:0};
 function bloquear(){
   if(!temSenha()){ toast('Crie uma senha em Configurações para poder bloquear'); setTab('config'); return; }
   LOCK.on=true; closeModal(); closeDetail(); document.body.classList.add('locked');
+  if(LOCK.pre){ const s=LOCK.pre; LOCK.pre=''; confereSenha(s).then(ok=>{ if(ok) desbloquear(); else { const m=$('#lkMsg'); if(m){ m.classList.remove('hidden'); m.textContent='Senha errada'; } } }); }
   let el=$('#lockScr'); if(!el){ el=document.createElement('div'); el.id='lockScr'; document.body.appendChild(el); }
   el.innerHTML=`<div class="lock-box"><div class="logo-big">🔒</div><h2>Finanças da Casa</h2><p class="note">${esc(chaveSenha())}</p>
     <input type="password" id="lkS" placeholder="Senha" autocomplete="current-password" inputmode="text"><button class="btn primary big" id="lkOk">Entrar</button>
@@ -4463,23 +4466,35 @@ TABS.splice(TABS.findIndex(t=>t.id==='fluxo')+1,0,{id:'pagoaberto',g:'visao',ic:
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
+const APP_VER='1.1.3';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
+  const em=lsGet('fin-email','');
   $('#drop').innerHTML=`<div class="start">
     <div class="logo-big">🏠💰</div><h2>Finanças da Casa</h2>
-    <p>Lançamentos, cartões, faturas e painéis da família — no computador e no celular.</p>
-    ${lsGet('fin-email','')?`<p style="margin:0">Conta: <b>${esc(lsGet('fin-email',''))}</b></p>`:''}
-    <button class="btn primary big" id="stGoogle" ${gConfigurado()?'':'disabled'}>☁️ Entrar com Google</button>
-    ${lsJSON('fin-senha-cache',{})[lsGet('fin-email','')]?'<p class="note">🔒 Depois de entrar, o app pede a sua senha.</p>':''}
-    ${gConfigurado()&&lsGet('fin-email','')?'<button class="btn ghost small" id="stOutra">Entrar com outra conta Google</button>':''}
-    ${gConfigurado()?'<p class="note">Os dados ficam numa pasta do <b>seu</b> Google Drive. O app só enxerga os arquivos dele.</p>':'<p class="note">⚠ O acesso ao Google ainda não foi configurado neste app (arquivo config.js). Siga o guia, ou teste abaixo.</p>'}
-    <div class="sep"><span>ou</span></div>
-    <button class="btn" id="stLocal">💾 Testar só neste aparelho</button>
-    <button class="btn" id="stDemo">🧪 Testar com dados de exemplo</button>
-    <p class="note">No modo de teste nada vai para a internet. Depois dá para passar tudo para o Google Drive.</p>
+    ${gConfigurado()?`<form class="login frm" id="stForm" autocomplete="on">
+      ${field('E-mail (conta Google)',`<input type="email" id="stEmail" name="username" autocomplete="username" value="${esc(em)}" placeholder="seu@gmail.com" required>`)}
+      ${field('Senha do app',`<input type="password" id="stSenha" name="password" autocomplete="current-password" placeholder="••••">`)}
+      <button class="btn primary big" type="submit" id="stGoogle">Entrar</button>
+      <div class="fmsg warn hidden" id="stMsg"></div>
+      <p class="note">Ao entrar, o Google confirma a sua conta (janelinha do Google) e o app confere a sua senha. Ainda não criou senha? Deixe em branco e crie depois em Configurações.</p>
+    </form>`:'<p class="note">⚠ O acesso ao Google ainda não foi configurado neste app (arquivo config.js).</p>'}
+    <details class="st-teste"><summary>Modo de teste (sem Google)</summary>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px"><button class="btn" id="stLocal">💾 Testar só neste aparelho</button>
+      <button class="btn" id="stDemo">🧪 Testar com dados de exemplo</button>
+      <p class="note">No modo de teste nada vai para a internet.</p></div></details>
+    <p class="note">Versão ${APP_VER}</p>
     <div id="libWarn"></div></div>`;
-  $('#stGoogle').onclick=async()=>{ try{ await entrarGoogle(false); }catch(e){ console.error(e); toast(e.message); } };
-  if($('#stOutra')) $('#stOutra').onclick=async()=>{ try{ localStorage.removeItem('fin-email'); localStorage.removeItem('fin-gfiles'); localStorage.removeItem('fin-ver'); G.files={}; await entrarGoogle(false); }catch(e){ console.error(e); toast(e.message); } };
+  if($('#stForm')) $('#stForm').onsubmit=async e=>{ e.preventDefault();
+    const email=$('#stEmail').value.trim().toLowerCase(), senha=$('#stSenha').value; const msg=$('#stMsg');
+    if(!/@/.test(email)){ msg.textContent='Digite o e-mail da conta Google'; msg.classList.remove('hidden'); return; }
+    if(nkey(email)!==nkey(lsGet('fin-email',''))){ ['fin-gfiles','fin-ver','fin-fver','fin-fkeys'].forEach(k=>localStorage.removeItem(k)); G.files={}; }
+    lsSet('fin-email',email); LOCK.pre=senha||'';
+    try{ await entrarGoogle(false);
+      if(ME.email && nkey(ME.email)!==nkey(email)) toast('Você entrou com '+ME.email+' (diferente do e-mail digitado)');
+      if(!temSenha() && senha) toast('Esta conta ainda não tem senha no app. Crie em Configurações.'); }
+    catch(err){ console.error(err); msg.textContent=err.message; msg.classList.remove('hidden'); }
+  };
   $('#stLocal').onclick=async()=>{ setMode('local'); DB=(await loadLocal())||emptyDB(); await abrirApp(); if(!DB.lanc.length&&!DB.compras.length) setTab('config'); };
   $('#stDemo').onclick=async()=>{ setMode('local'); const ex=await loadLocal(); if(ex&&(ex.lanc.length||ex.compras.length)&&!confirm('Já existem dados de teste neste aparelho. Substituir pelos dados de exemplo?')){ DB=ex; } else { DB=dbExemplo(); await saveLocal(false); } await abrirApp(); };
 }
@@ -4592,7 +4607,12 @@ async function boot(){
   if(!DB){ mostrarInicio(); return; }
   await abrirApp();
 }
-if('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(()=>{});
+if('serviceWorker' in navigator && location.protocol.startsWith('http')){
+  const tinha=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').then(reg=>{ document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') reg.update().catch(()=>{}); }); }).catch(()=>{});
+  // versão nova publicada: recarrega uma vez para usar a nova (quando não há nada sendo digitado)
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(!tinha || window.__rl) return; window.__rl=1; if(!$('#modalRoot').innerHTML && TAB!=='lancar') location.reload(); else toast('Versão nova disponível: feche e abra o app'); });
+}
 boot();
 
 </script>
