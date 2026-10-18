@@ -446,7 +446,7 @@ details.fold>.fold-b{padding:0 14px 14px}
 .bx-n{display:flex;flex-direction:column;min-width:0}.bx-n b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bx-v{font-weight:700;white-space:nowrap}
 .lista-ta{width:100%;border:1px solid var(--border);border-radius:9px;padding:8px;background:var(--surface);font:inherit}
 .badge{background:var(--crit);color:#fff;border-radius:9px;padding:0 6px;font-size:11px;margin-left:4px}
-.sync-erro,.sync-auth{border-color:var(--warn)!important}
+.sync-erro,.sync-auth,.sync-arq{border-color:var(--warn)!important}
 .bnav{display:none}
 @media (max-width:760px){
   .hide-m{display:none!important}.sync-tx{display:none}
@@ -3499,7 +3499,7 @@ const SYNC = {
     if(MODE.tipo!=='google' || this.busy) return;
     if(!navigator.onLine){ this.set('off','Sem internet: salvo neste aparelho, envia quando voltar'); return; }
     if(!tokenOk()){ this.set('auth','Toque para reconectar ao Google'); return; }
-    if(!G.files.dados){ this.set('', ''); return; }
+    if(!G.files.dados){ this.set('arq','Este aparelho não está ligado aos arquivos do Drive. Toque para escolher os arquivos compartilhados.'); return; }
     this.busy=true; this.set('sync','Sincronizando…');
     try{
       const meta=await gMeta(G.files.dados);
@@ -3557,12 +3557,13 @@ setInterval(()=>{ if(document.visibilityState==='visible' && DB && MODE.tipo==='
 
 function renderSyncChip(){
   const el=$('#syncChip'); if(!el) return;
-  const map={ok:['✅','Sincronizado'],sync:['🔄','Sincronizando…'],pend:['⏳','A enviar'],off:['📴','Sem internet'],auth:['🔑','Reconectar'],erro:['⚠️','Erro'],local:['💾','Só neste aparelho']};
+  const map={ok:['✅','Sincronizado'],sync:['🔄','Sincronizando…'],pend:['⏳','A enviar'],off:['📴','Sem internet'],auth:['🔑','Reconectar'],erro:['⚠️','Erro'],local:['💾','Só neste aparelho'],arq:['📂','Escolher arquivos']};
   const [ic,tx]=map[SYNC.st]||['',''];
   el.innerHTML=ic?`<button class="btn small sync-${SYNC.st}" id="bSync" title="${esc(SYNC.msg||tx)}${SYNC.last?' · última sincronização '+new Date(SYNC.last).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):''}">${ic} <span class="sync-tx">${tx}</span></button>`:'';
   const b=$('#bSync'); if(b) b.onclick=async()=>{
     if(SYNC.st==='auth'){ try{ await gLogin(''); await SYNC.run(true); }catch(e){ toast(e.message); } }
     else if(SYNC.st==='local'){ setTab('config'); }
+    else if(SYNC.st==='arq'){ try{ await abrirCompartilhados(); }catch(e){ toast(e.message); } }
     else if(SYNC.st==='erro'){ alert(SYNC.msg); SYNC.run(true); }
     else SYNC.run(true);
   };
@@ -4921,7 +4922,7 @@ TABS.splice(TABS.findIndex(t=>t.id==='orcamento'),0,{id:'planejar',g:'gastos',ic
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.4.1';
+const APP_VER='1.4.2';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
