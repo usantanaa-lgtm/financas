@@ -509,6 +509,8 @@ body.ocultar .pl-t .pl-v{filter:blur(6px)}body.ocultar .pl-t .pl-v:focus{filter:
 .side a[data-act]{cursor:pointer}.side-ver{font-size:11px;color:var(--muted);padding:10px 12px}
 @media (max-width:980px){ .side{height:auto!important;bottom:0;max-height:100dvh;overflow-y:auto;padding-bottom:calc(110px + env(safe-area-inset-bottom))!important;-webkit-overflow-scrolling:touch} }
 @media (max-width:760px){ body:not(.no-app) .main{padding-bottom:calc(110px + env(safe-area-inset-bottom))!important} #drawer{padding-bottom:calc(100px + env(safe-area-inset-bottom))} }
+.tr-list{max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:9px;padding:4px 10px;margin:8px 0}
+.tr-list .ckl{margin:5px 0;font-size:13.5px}
 
 </style>
 <script src="config.js"></script>
@@ -2408,11 +2410,11 @@ function renderCarro(v, rows){
    ===================================================================== */
 const SEM_CONTA='(sem conta)';
 function contasModel(){
-  const L=STATE.lanc; const names=uniq(STATE.contas.map(c=>c.nome).concat(L.map(o=>o.conta).filter(Boolean)));
+  const L=STATE.lanc.concat(STATE.transfs||[]); const names=uniq(STATE.contas.map(c=>c.nome).concat(L.map(o=>o.conta).filter(Boolean)));
   const key=n=>nkey(n);
   const rows=names.map(n=>({nome:n,cad:STATE.contas.find(c=>key(c.nome)===key(n))||null})).concat([{nome:SEM_CONTA,cad:null}]);
   rows.forEach(r=>{ const its=L.filter(o=>r.nome===SEM_CONTA?!o.conta:key(o.conta)===key(r.nome)); r.its=its;
-    const P=its.filter(o=>o.pago), A=its.filter(o=>!o.pago);
+    const jaFoi=o=>o.pago && (!STATE.app || o.data<=TODAY); const P=its.filter(jaFoi), A=its.filter(o=>!jaFoi(o));
     r.ini=r.cad?r.cad.ini:0; r.tipo=r.cad?r.cad.tipo:''; r.ativa=r.cad?r.cad.ativa:true;
     r.rec=sum(P.filter(o=>o.t==='R'&&!o.transf),o=>o.valor); r.desp=sum(P.filter(o=>o.t==='D'&&!o.transf),o=>o.valor);
     r.tr=sum(P.filter(o=>o.transf),o=>o.t==='R'?o.valor:-o.valor);
@@ -2449,6 +2451,7 @@ function renderContas(v, rows){
   const top=R.filter(r=>r.its.length).sort((a,b)=>b.its.length-a.its.length).slice(0,6); const lim=mesesFechados()+1;
   line('chCtasM',MESES_C,top.map((r,i)=>lineDS(r.nome,r.mes.map((x,j)=>j<lim?x:null),series(i+1))),{money:true,zero:false,labels:false});
   bindExports({ct:()=>exportSheets('saldo_por_conta',[['Contas',R.map(r=>({Conta:r.nome,Tipo:r.tipo,'Saldo inicial':r.ini,'Receitas pagas':r.rec,'Despesas pagas':r.desp,'Transferências':r.tr,'Saldo atual':r.atual,'A receber':r.aRec,'A pagar':r.aPag,'Saldo previsto':r.prev}))]])});
+  if(STATE.app && typeof acertarSaldos==='function'){ const ph=v.querySelector('.ph'); if(ph){ ph.insertAdjacentHTML('beforeend','<button class="btn primary" id="ctAcertar">⚖️ Acertar saldos com o banco</button>'); $('#ctAcertar').onclick=acertarSaldos; } }
 }
 
 /* =====================================================================
@@ -3600,6 +3603,7 @@ function resultadoAno(y){
   return r;
 }
 function saldoInicialAno(y, prof=0){
+  if(live('contas').some(x=>x.saldoRef)) return Math.round(sum(live('contas'),x=>saldoContaAntes(x, y+'-01-01'))*100)/100;
   const c=cfg(); if(c.saldoIni && c.saldoIni[y]!=null && c.saldoIni[y]!=='') return +c.saldoIni[y];
   if(prof<6 && temDados(y-1)) return saldoInicialAno(y-1,prof+1) + resultadoAno(y-1);
   return sum(live('contas'), x=>+x.saldoIni||0);
@@ -3609,7 +3613,7 @@ const refFatura = c => c.ref || ('CARTÃO '+c.nome);
 
 function dbToState(ano){
   const warnings=[];
-  const S = {fileName:'Finanças da Casa', lanc:[], semData:[], cartoes:[], carro:[], limites:{}, tiposSub:{}, ativas:{}, catList:[], subList:[], desc:{}, contas:[], cadCart:[], budget:[], prev:[], layout:{D:{c:{conta:1}},R:{c:{conta:1}}}, listas:{plano:{R:[],D:[]},ref:[]}, saldoInicial:0, dashXL:{}, warnings, app:true};
+  const S = {fileName:'Finanças da Casa', lanc:[], transfs:[], semData:[], cartoes:[], carro:[], limites:{}, tiposSub:{}, ativas:{}, catList:[], subList:[], desc:{}, contas:[], cadCart:[], budget:[], prev:[], layout:{D:{c:{conta:1}},R:{c:{conta:1}}}, listas:{plano:{R:[],D:[]},ref:[]}, saldoInicial:0, dashXL:{}, warnings, app:true};
   S.saldoInicial = saldoInicialAno(ano);
   // categorias
   live('cats').slice().sort((a,b)=>(a.u||0)-(b.u||0)).forEach(c=>{ if(c.cat) S.catList.push(c.cat); if(c.sub){ S.subList.push(c.sub); if(c.tipo) S.tiposSub[nkey(c.sub)]=TIPOG(c.tipo); if(+c.limite>0){ Object.keys(S.limites).forEach(k=>{ if(nkey(k)===nkey(c.sub)) delete S.limites[k]; }); S.limites[c.sub]=+c.limite; } if(c.ativa===false) S.ativas[nkey(c.sub)]='NÃO'; } });
@@ -3621,6 +3625,8 @@ function dbToState(ano){
     const base={t, plano:l.plano||'', ref:l.ref||'', desc:l.desc||'', descD:l.descD||'', cat:l.cat||'', sub:l.sub||'', tipo:l.tipo||'', forma:l.forma||'', status:l.status||'', valor:+l.valor||0, obs:l.obs||'', conta:l.conta||'', aba:'', linha:'', src:{k:'lanc',id:l.id}, by:l.by};
     if(!d){ if(base.valor) S.semData.push(Object.assign(base,{tipoTxt:t==='R'?'Receita':'Despesa', nome:base.desc||base.sub||base.plano||'(sem descrição)', pago:PAGO_SET.has(norm(base.status))})); return; }
     if(d.getFullYear()!==ano || !base.valor) return;
+    // transferência entre contas: só move dinheiro de uma conta para outra (não é receita nem despesa)
+    if(ehTransf(l)){ const o=mkLanc(Object.assign(base,{data:d}), S); o.transf=true; S.transfs.push(o); return; }
     S.lanc.push(mkLanc(Object.assign(base,{data:d}), S));
   });
   // cartões: compras do ano + uma "fatura" por mês na saída (como a SAÍDA da planilha)
@@ -3644,13 +3650,15 @@ function dbToState(ano){
   });
   S.cartoes.forEach(c=>c.compras.forEach(p=>{ p.cls=kwClass([p.lan,p.ref,p.forma,p.nota].join(' '),S); }));
   // contas bancárias
-  live('contas').forEach(c=>S.contas.push({nome:c.nome, tipo:c.tipo||'', ini:+c.saldoIni||0, ativa:c.ativa!==false}));
+  live('contas').forEach(c=>S.contas.push({nome:c.nome, tipo:c.tipo||'', ini:saldoContaAntes(c, ano+'-01-01'), ativa:c.ativa!==false}));
   // orçamento anual, previsões, carro
   live('budget').filter(b=>!b.ano||+b.ano===ano).forEach(b=>{ const ini=Math.min(12,Math.max(1,+b.ini||1)), n=Math.min(12,Math.max(1,+b.n||12)); S.budget.push({cat:b.cat||'',sub:b.sub||'',tipo:TIPOG(b.tipo),valor:+b.valor||0,ini,n,meses:MESES.map((_,i)=>(i+1>=ini&&i+1<ini+n)?+b.valor||0:0)}); });
   live('prev').forEach(p=>{ const d=parseISO(p.data); if(!d||d.getFullYear()!==ano) return; S.prev.push({data:d,mes:d.getMonth()+1,tipo:p.tipo||'',valor:+p.valor||0,conta:p.conta||'',cartao:p.cartao||'',cat:p.cat||'',sub:p.sub||'',desc:p.desc||'',status:p.status||''}); });
   live('carro').forEach(a=>{ const d=parseISO(a.data); if(!d) return; S.carro.push({data:d,comb:a.comb||'',posto:a.posto||'',rede:a.rede||'',preco:+a.preco||0,litros:+a.litros||0,valor:+a.valor||0,hod:+a.hod||0,cheio:!!a.cheio}); });
   S.carro.sort((a,b)=>a.data-b.data||a.hod-b.hod);
   finishState(S);
+  S.transfs.forEach(o=>{ o.transf=true; o.atrasado=false; o.sit=o.pago?'Pago':'Em aberto'; o.searchTxt=norm([o.plano,o.desc,o.conta].join(' ')); });
+  S.lanc.forEach(o=>{ o.transf=false; });
   // o ano exibido é o escolhido (não o "mais comum")
   S.warnings.length=0;
   S.ano=ano; S.anoAtual = ano===TODAY.getFullYear(); S.mesRef = S.anoAtual ? TODAY.getMonth()+1 : (ano<TODAY.getFullYear()?12:1);
@@ -3659,6 +3667,32 @@ function dbToState(ano){
   S.savedAt=DB.alterado||Date.now();
   return S;
 }
+/* é transferência entre contas? (lançada como Transferência no app, ou plano/categoria marcado em Configurações) */
+function ehTransf(l){ if(l.transf) return true; const L=(cfg().planosTransf||[]).map(nkey); if(!L.length) return false; return L.includes(nkey(l.plano||'')) || L.includes(nkey(l.cat||'')); }
+
+/* ---------- saldo de cada conta numa data ----------
+   Movimentos pagos da conta (entradas +, saídas −, transferências, faturas pagas por ela).
+   Ponto de partida: o "acerto com o banco" mais recente (saldoRef {data, valor}); sem acerto,
+   o saldo inicial do cadastro vale como saldo antes de 1º de janeiro do ano-base. */
+function movsConta(c){
+  const k=nkey(c.nome), out=[];
+  live('lanc').forEach(l=>{ if(!PAGO_SET.has(norm(l.status)) || nkey(l.conta||'')!==k || !(+l.valor)) return; const d=(l.dataPag||l.data||'').slice(0,10); if(d) out.push({d, u:l.u||0, v:(l.t==='R'?1:-1)*(+l.valor)}); });
+  live('faturas').forEach(f=>{ if(f.status!=='PAGO') return; const cc=cartaoById(f.cartao); const conta=f.conta||(cc&&cc.conta)||''; if(nkey(conta)!==k) return;
+    const v=f.valorPago!=null?+f.valorPago:totalFatura(f.cartao,f.ym); const d=(f.dataPag||(f.ym+'-'+String(Math.min(28,+(cc&&cc.venc)||10)).padStart(2,'0'))).slice(0,10); if(v) out.push({d, u:f.u||0, v:-v}); });
+  return out;
+}
+/* saldo da conta ANTES do dia iso (movimentos do próprio dia não entram) */
+function saldoContaAntes(c, iso){
+  const M=movsConta(c);
+  if(c.saldoRef && c.saldoRef.data){ const r=c.saldoRef.data, ts=+c.saldoRef.ts||0; // valor = saldo no momento do acerto
+    const depois = m => m.d>r || (m.d===r && ts && m.u>ts);   // lançado depois do acerto
+    if(iso>r) return +c.saldoRef.valor + sum(M.filter(m=>depois(m) && m.d<iso),m=>m.v);
+    return +c.saldoRef.valor - sum(M.filter(m=>m.d>=iso && !depois(m)),m=>m.v); }
+  const base=((cfg().anoBase)||ANO)+'-01-01';
+  if(iso>=base) return (+c.saldoIni||0) + sum(M.filter(m=>m.d>=base && m.d<iso),m=>m.v);
+  return (+c.saldoIni||0) - sum(M.filter(m=>m.d>=iso && m.d<base),m=>m.v);
+}
+const saldoContaHoje = c => { const t=new Date(); t.setDate(t.getDate()+1); return saldoContaAntes(c, isoLocal(t)); };
 
 /* =====================================================================
    IMPORTAR a planilha Contas_2026 (uma vez, na migração)
@@ -3760,10 +3794,11 @@ function segBtns(name, items, val){ return `<div class="segb" data-seg="${name}"
 
 /* ------------------------------ LANÇAR ------------------------------ */
 let FORM = null;
-function novoForm(t){ return {t:t||lsGet('fin-ult-tipo','D'), data:hojeISO(), desc:'', valor:'', cat:'', sub:'', obs:'', plano:'', ref:'', status:'EM ABERTO', conta:'', dataPag:hojeISO(), forma:'', tipo:'', repetir:1, cartao:lsGet('fin-ult-cartao',''), formaC:'À Vista', n:2, refC:'', fatura1:'', edit:null, pend:null, litros:'', hod:'', posto:'', cheio:'1', foto:''}; }
+function novoForm(t){ return {t:t||lsGet('fin-ult-tipo','D'), data:hojeISO(), desc:'', valor:'', cat:'', sub:'', obs:'', plano:'', ref:'', status:'EM ABERTO', conta:'', dataPag:hojeISO(), forma:'', tipo:'', repetir:1, cartao:lsGet('fin-ult-cartao',''), formaC:'À Vista', n:2, refC:'', fatura1:'', edit:null, pend:null, litros:'', hod:'', posto:'', cheio:'1', foto:'', origem:'', destino:''}; }
 function abrirLancar(pre){ FORM=Object.assign(novoForm(pre&&pre.t), pre||{}); if(TAB!=='lancar') FORM.voltar=TAB; setTab('lancar'); }
 const ehComb = f => /combust|abastec|gasolin|etanol/.test(norm((f.sub||'')+' '+(f.cat||'')));
 function editarLanc(id){ const l=byId('lanc',id); if(!l) return; closeDetail();
+  if(l.transf){ const par=l.par?byId('lanc',l.par):null; const sai=l.t==='D'?l:par, ent=l.t==='R'?l:par; abrirLancar({t:'T', data:l.data||'', desc:l.desc||'', valor:fmtNumBR(l.valor), obs:l.obs||'', origem:(sai&&sai.conta)||'', destino:(ent&&ent.conta)||'', edit:{k:'lanc',id:l.id,par:l.par||''}}); return; }
   abrirLancar(Object.assign({t:l.t, data:l.data||'', desc:l.desc||'', valor:fmtNumBR(l.valor), cat:l.cat||'', sub:l.sub||'', obs:l.obs||'', plano:l.plano||'', ref:l.ref||'', status:l.status||'EM ABERTO', conta:l.conta||'', dataPag:l.dataPag||hojeISO(), forma:l.forma||'', tipo:l.tipo||'', repetir:1, foto:l.foto||'', edit:{k:'lanc',id}}, abastDe(l.id))); }
 function abastDe(id){ const a=live('carro').find(x=>x.lanc===id); return a?{litros:fmtNumBR(a.litros), hod:a.hod?String(a.hod):'', posto:a.posto||'', cheio:a.cheio?'1':'0'}:{}; }
 function editarCompra(id){ const p=byId('compras',id); if(!p) return; closeDetail();
@@ -3777,9 +3812,12 @@ function calcForm(f){
   const n = f.t==='C' ? (f.formaC==='À Vista'?1:Math.max(1,parseInt(f.n)||1)) : Math.max(1,parseInt(f.repetir)||1);
   const linhas=[];
   if(f.t==='C'){ if(prim){ const p=Math.round(valor/n*100)/100; for(let k=0;k<n;k++){ const v = f.formaC==='Parcelado' ? (k<n-1?p:Math.round((valor-p*(n-1))*100)/100) : valor; linhas.push({k:k+1, quando:ymLabel(ymAdd(prim,k)), ym:ymAdd(prim,k), v}); } } }
+  else if(f.t==='T') linhas.push({k:1, quando:fmtDateS(parseISO(f.data)), iso:f.data, v:valor});
   else for(let k=0;k<n;k++) linhas.push({k:k+1, quando:fmtDateS(parseISO(addMesesISO(f.data,k))), iso:addMesesISO(f.data,k), v:valor});
   let falta='';
+  if(f.t==='T' && !f.desc.trim()) f.desc='Transferência entre contas';
   if(!f.data) falta='Falta a data'; else if(!f.desc.trim()) falta='Falta a descrição'; else if(!(valor>0)) falta='Falta o valor';
+  else if(f.t==='T'){ if(!f.origem) falta='Escolha a conta de onde sai'; else if(!f.destino) falta='Escolha a conta para onde vai'; else if(f.origem===f.destino) falta='As duas contas são iguais'; }
   else if(f.t==='C'){ if(!c) falta='Escolha o cartão'; else if(!prim) falta='Informe o mês da 1ª fatura (o cartão está sem melhor dia/vencimento no cadastro)'; }
   return {valor, c, auto, prim, n, linhas, falta};
 }
@@ -3791,13 +3829,17 @@ function renderLancar(v){
   const pend = f.pend ? byId('pend', f.pend) : null;
   v.innerHTML = pageHead(ed?'Editar lançamento':'Novo lançamento', ed?'Altere e salve. Para apagar, use Excluir.':'Escolha o tipo e preencha. Dica: no valor dá para fazer contas (ex.: 120+35,90).', '<button class="btn small" id="bCalc">🧮 Calculadora</button>')
   + `<div class="grid"><div class="card c7 frm" id="frm">
-      ${segBtns('t',[['D','💸 Saída'],['R','💰 Entrada'],['C','💳 Cartão']],f.t)}
+      ${segBtns('t',[['D','💸 Saída'],['R','💰 Entrada'],['C','💳 Cartão']].concat(semContas()?[]:[['T','🔁 Transf.']]),f.t)}
       <div class="fgrid">
         ${field('',`<input type="date" name="data" value="${esc(f.data)}">`,'','') .replace('<span class="fl"></span>',`<span class="fl" id="lblData"></span>`)}
         ${field('',`<input name="valor" inputmode="decimal" placeholder="0,00" value="${esc(f.valor)}" autocomplete="off">`).replace('<span class="fl"></span>',`<span class="fl" id="lblValor"></span>`)}
         ${field('Descrição',`<input name="desc" list="dlDesc" value="${esc(f.desc)}" placeholder="Ex.: Mercado, Conta de luz…" autocomplete="off">`,'span2')}
-        ${field('Categoria',`<input name="cat" list="dlCat" value="${esc(f.cat)}" autocomplete="off">`)}
-        ${field('Subcategoria',`<input name="sub" list="dlSub" value="${esc(f.sub)}" autocomplete="off">`)}
+        ${field('Categoria',`<input name="cat" list="dlCat" value="${esc(f.cat)}" autocomplete="off">`,'no-t')}
+        ${field('Subcategoria',`<input name="sub" list="dlSub" value="${esc(f.sub)}" autocomplete="off">`,'no-t')}
+      </div>
+      <div class="fgrid" data-only="T">
+        ${field('Sai da conta',`<select name="origem">${opt(contasAtivas(),f.origem,'Escolha a conta')}</select>`)}
+        ${field('Entra na conta',`<select name="destino">${opt(contasAtivas(),f.destino,'Escolha a conta')}</select>`,'','Pix ou transferência entre contas de vocês: não conta como receita nem como despesa, só muda o saldo das contas.')}
       </div>
       <div class="fgrid" data-only="RD">
         ${field('Plano de contas',`<input name="plano" list="dlPlano" value="${esc(f.plano)}" autocomplete="off">`)}
@@ -3836,16 +3878,17 @@ function renderLancar(v){
   const root=$('#frm');
   const sync=()=>{
     root.querySelectorAll('[data-only]').forEach(el=>el.classList.toggle('hidden', !el.dataset.only.includes(f.t==='C'?'C':f.t)));
+    root.querySelectorAll('.no-t').forEach(el=>el.classList.toggle('hidden', f.t==='T'));
     root.querySelectorAll('.only-pago').forEach(el=>el.classList.toggle('hidden', f.status!=='PAGO'));
     root.querySelectorAll('.only-parc').forEach(el=>el.classList.toggle('hidden', f.formaC==='À Vista'));
-    $('#lblData').textContent = f.t==='C'?'Data da compra':f.t==='R'?'Data (recebimento)':'Data (vencimento)';
+    $('#lblData').textContent = f.t==='T'?'Data da transferência':f.t==='C'?'Data da compra':f.t==='R'?'Data (recebimento)':'Data (vencimento)';
     $('#lblValor').textContent = f.t==='C'?(f.formaC==='Recorrente'?'Valor por mês':'Valor total da compra'):'Valor';
     if($('#lblConta')) $('#lblConta').textContent = f.status==='PAGO'?'Conta (de onde saiu / entrou)':'Conta (prevista)';
     $('#lblN').textContent = f.formaC==='Recorrente'?'Quantos meses':'Nº de parcelas';
     const ab=$('#abast'); if(ab){ ab.classList.toggle('hidden',!ehComb(f)); const lt=numBR(f.litros), vv=numBR(f.valor); $('#hintPL').textContent = lt&&vv ? 'Preço do litro: '+brl(vv/lt) : ''; }
     const r=calcForm(f);
     $('#hintFat').innerHTML = f.t==='C' ? (r.auto?`Automático pelo cadastro: <b>${ymLabel(r.auto)}</b>. Preencha só se for outro mês.`:'Cartão sem melhor dia/vencimento no cadastro: informe o mês.') : '';
-    const dest = f.t==='C' ? (r.c?'Cartão '+r.c.nome:'—') : (f.t==='R'?'Entradas':'Saídas');
+    const dest = f.t==='T' ? 'Transferência: '+(f.origem||'?')+' → '+(f.destino||'?') : f.t==='C' ? (r.c?'Cartão '+r.c.nome:'—') : (f.t==='R'?'Entradas':'Saídas');
     $('#prev').innerHTML = `<p class="note">Vai para: <b>${esc(dest)}</b>${r.linhas.length>1?` · ${r.linhas.length} ${f.t==='C'?'parcelas':'lançamentos'}`:''}</p>`
       + (r.linhas.length?`<div class="twrap short"><table><thead><tr><th>Nº</th><th>${f.t==='C'?'Fatura':'Data'}</th><th class="num">Valor</th></tr></thead><tbody>${r.linhas.slice(0,36).map(x=>`<tr><td>${x.k}</td><td>${esc(x.quando)}</td><td class="num">${brl(x.v)}</td></tr>`).join('')}</tbody><tfoot><tr><td></td><td>Total</td><td class="num">${brl(sum(r.linhas,x=>x.v))}</td></tr></tfoot></table></div>`:'');
     const m=$('#fmsg'); m.textContent = r.falta ? r.falta : '✔ Pronto para '+(ed?'salvar':'lançar'); m.className='fmsg '+(r.falta?'warn':'ok');
@@ -3857,15 +3900,30 @@ function renderLancar(v){
   if($('#bLimpar')) $('#bLimpar').onclick=()=>{ FORM=novoForm(f.t); renderLancar(v); };
   if($('#bCancelar')) $('#bCancelar').onclick=()=>{ const vt=f.voltar||'lancamentos'; FORM=null; setTab(vt); };
   bindBaixaFoto(v); if($('#bTiraFoto')) $('#bTiraFoto').onclick=()=>{ if(confirm('Tirar o comprovante deste lançamento? (some ao salvar)')){ f.foto=''; renderLancar(v); } };
-  if($('#bExcluir')) $('#bExcluir').onclick=async()=>{ if(!confirm('Excluir este lançamento?')) return; del(f.edit.k, f.edit.id); live('carro').filter(a=>a.lanc===f.edit.id).forEach(a=>del('carro',a.id)); FORM=null; await commit('Excluído'); setTab(f.voltar||(f.edit.k==='compras'?'faturas':'lancamentos')); };
+  if($('#bExcluir')) $('#bExcluir').onclick=async()=>{ if(!confirm('Excluir este lançamento?')) return; { const x=byId(f.edit.k,f.edit.id); if(x&&x.par) del('lanc',x.par); } del(f.edit.k, f.edit.id); live('carro').filter(a=>a.lanc===f.edit.id).forEach(a=>del('carro',a.id)); FORM=null; await commit('Excluído'); setTab(f.voltar||(f.edit.k==='compras'?'faturas':'lancamentos')); };
   sync();
   if(!ed && innerWidth>760) setTimeout(()=>{ const d=root.querySelector('[name=desc]'); if(d) d.focus(); },50);
 }
 async function salvarForm(v){
   const f=FORM, r=calcForm(f);
   if(r.falta){ toast(r.falta); return; }
+  // transferência entre contas: duas pernas (saída da origem e entrada no destino), marcadas como transf
+  const eraTransf = f.edit && f.edit.k==='lanc' && (byId('lanc',f.edit.id)||{}).transf;
+  if(f.t==='T'){
+    let sai=null, ent=null;
+    if(eraTransf){ const a=byId('lanc',f.edit.id), b=a.par?byId('lanc',a.par):null; sai=a.t==='D'?a:b; ent=a.t==='R'?a:b; }
+    else if(f.edit){ del(f.edit.k, f.edit.id); }
+    const base={data:f.data, desc:f.desc.trim(), valor:r.valor, obs:f.obs.trim(), plano:'TRANSFERÊNCIA ENTRE CONTAS', ref:'', cat:'', sub:'', status:'PAGO', dataPag:f.data, forma:'TRANSFERÊNCIA', tipo:'', transf:1};
+    const s=put('lanc',Object.assign({}, sai||{}, base, {t:'D', conta:f.origem}));
+    const e=put('lanc',Object.assign({}, ent||{}, base, {t:'R', conta:f.destino}));
+    s.par=e.id; e.par=s.id; put('lanc',s); put('lanc',e);
+    const voltarT=f.voltar||(f.edit?'lancamentos':null); FORM=novoForm('T');
+    await commit(f.edit?'Transferência atualizada ✓':'Transferência lançada ✓'); if(voltarT&&voltarT!=='lancar') setTab(voltarT); else renderLancar(v); return;
+  }
+  if(eraTransf){ const a=byId('lanc',f.edit.id); if(a.par) del('lanc',a.par); }
   // trocou o tipo durante a edição (ex.: era saída e virou compra no cartão): apaga o antigo e cria o novo
   if(f.edit && ((f.edit.k==='lanc')!==(f.t!=='C'))){ del(f.edit.k, f.edit.id); f.edit=null; }
+  if(f.edit && eraTransf){ const x=Object.assign({},byId('lanc',f.edit.id)); delete x.transf; delete x.par; x.plano=''; put('lanc',x); }
   const p = f.pend ? byId('pend',f.pend) : null;
   const guardaFoto = cfg().comprovante!==false;
   const foto = p ? (guardaFoto ? (p.foto||'') : '') : (f.foto||'');
@@ -3906,7 +3964,7 @@ function bindDetailActions(o){
   if($('#daEdit')) $('#daEdit').onclick=()=>editarLanc(o.src.id);
   if($('#daEditC')) $('#daEditC').onclick=()=>editarCompra(o.src.id);
   if($('#daFoto')) $('#daFoto').onclick=()=>{ const rr=byId(o.src.k==='lanc'?'lanc':'compras',o.src.id); verFoto(rr.foto); };
-  if($('#daDel')) $('#daDel').onclick=async()=>{ if(!confirm('Excluir este lançamento?')) return; del('lanc',o.src.id); closeDetail(); await commit('Excluído'); };
+  if($('#daDel')) $('#daDel').onclick=async()=>{ if(!confirm('Excluir este lançamento?')) return; const x=byId('lanc',o.src.id); if(x&&x.par) del('lanc',x.par); del('lanc',o.src.id); closeDetail(); await commit('Excluído'); };
   if($('#daPago')) $('#daPago').onclick=()=>{ closeDetail(); BX.sel=new Set(['L|'+o.src.id]); setTab('baixas'); };
   if($('#daFat')) $('#daFat').onclick=()=>{ closeDetail(); FT.cartao=o.src.cartao; FT.ym=o.src.ym; setTab('faturas'); };
 }
@@ -4158,6 +4216,10 @@ function renderConfig(v){
       <label class="ckl"><input type="checkbox" id="cfOcr" ${cfg().ocr!==false?'checked':''}> Ler a nota automaticamente ao tirar a foto (valor, data e estabelecimento) — a leitura é feita pela sua própria conta do Google</label>
       <div class="fbtns" style="margin-top:14px"><button class="btn danger" id="cfSairTudo">⏻ Sair do sistema neste aparelho</button></div>
       <p class="note">Sair apaga a cópia guardada neste aparelho (os dados continuam no Drive). Para voltar: Entrar com Google e digitar a sua senha.</p></div>
+    ${semContas()?'':`<div class="card c6 frm"><h3>🔁 Transferências entre contas</h3>
+      <p class="note">Para Pix/transferências <b>novas</b>, use <b>Novo lançamento → 🔁 Transf.</b> Para as que vieram da planilha como entrada + saída, marque abaixo o plano de contas (ou categoria) que vocês usavam para isso: esses lançamentos deixam de contar como receita/despesa e passam a só mover o saldo entre as contas.</p>
+      <details ${(cfg().planosTransf||[]).length?'':'open'}><summary class="note">Escolher (${(cfg().planosTransf||[]).length} marcado(s))</summary><div class="tr-list">${candTransf().map(([n,q,sug])=>`<label class="ckl"><input type="checkbox" data-tr="${esc(n)}" ${(cfg().planosTransf||[]).some(x=>nkey(x)===nkey(n))?'checked':''}> ${esc(n)} <span class="note">(${q})${sug?' · parece transferência':''}</span></label>`).join('')||'<p class="note">Nenhum plano/categoria encontrado.</p>'}</div>
+      <div class="fbtns"><button class="btn" id="cfTrOk">Salvar</button></div></details></div>`}
     <div class="card c6 frm"><h3>Ano exibido nos painéis</h3><div class="fbtns"><select id="cfAno">${opt(anosDisponiveis().map(String),String(ANO))}</select></div>
       <h3 style="margin-top:16px">Planilha Excel</h3>
       <div class="fbtns"><label class="btn primary"><input type="file" id="cfImp" accept=".xlsx,.xlsm,.xls" hidden>📥 Importar Contas_2026 (substitui tudo)</label><button class="btn" id="cfExp">📤 Exportar para Excel</button></div>
@@ -4183,6 +4245,7 @@ function renderConfig(v){
   const tog=(id,k,inv)=>{ const e=$(id); if(e) e.onchange=async()=>{ const c2=Object.assign({},cfg()); c2[k]=inv?!e.checked:e.checked; put('cfg',c2); await commit('Preferência salva ✓'); renderSide(); renderConfig(v); }; };
   $('#cfOcultaIni').onchange=e=>{ lsSet('fin-ocultar-ini',e.target.checked?'1':'0'); toast('Preferência salva ✓'); };
   tog('#cfSemContas','semContas'); tog('#cfComp','comprovante'); tog('#cfOcr','ocr');
+  if($('#cfTrOk')) $('#cfTrOk').onclick=async()=>{ const sel=[...v.querySelectorAll('[data-tr]:checked')].map(c=>c.dataset.tr); put('cfg',Object.assign({},cfg(),{planosTransf:sel})); await commit(sel.length?sel.length+' marcado(s) como transferência ✓':'Nenhum marcado'); renderConfig(v); };
   $('#cfCarro').onchange=async e=>{ const f=e.target.files[0]; if(f) await importarCarro(f); e.target.value=''; };
   on('#cfShare',async()=>{ const em=$('#cfEmail').value.trim(); if(!/@/.test(em)){ toast('Digite o e-mail'); return; } try{ await gShare(G.files.dados,em); if(G.files.fotos) await gShare(G.files.fotos,em); toast('Compartilhado com '+em+' ✓'); }catch(e){ toast(e.message); } });
   on('#cfPick',async()=>{ try{ await abrirCompartilhados(); renderConfig(v); }catch(e){ toast(e.message); } });
@@ -4716,6 +4779,30 @@ function composicaoHTML(itens, total){
     <div class="comp-it comp-tot"><i></i><span class="comp-n">Total</span><b class="comp-p">100%</b><span class="comp-v num">${brl(total)}</span></div></div>`;
 }
 
+/* planos de contas / categorias candidatos a "transferência entre contas" (para os lançamentos que vieram da planilha) */
+function candTransf(){
+  const m=new Map(); const add=n=>{ n=String(n||'').trim(); if(!n) return; m.set(n,(m.get(n)||0)+1); };
+  live('lanc').filter(l=>!l.transf).forEach(l=>{ add(l.plano); if(l.cat&&l.cat!==l.plano) add(l.cat); });
+  const re=/transf|entre contas|pix entre|aplica|resgate|poupan|investim/;
+  return [...m].map(([n,q])=>[n,q,re.test(norm(n))]).sort((a,b)=>(b[2]-a[2])||a[0].localeCompare(b[0],'pt'));
+}
+
+/* ---------- acertar o saldo de cada conta com o app do banco ---------- */
+function acertarSaldos(){
+  const C=live('contas').filter(c=>c.ativa!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
+  if(!C.length){ toast('Cadastre as contas em Cadastros → Contas'); return; }
+  const hoje=hojeISO();
+  modal(`<button class="btn small x" data-close>✕</button><h2>⚖️ Acertar saldos com o banco</h2>
+    <p class="note">Abra o app de cada banco e digite o saldo de <b>hoje</b>. O app passa a partir desse valor e soma os próximos lançamentos. Deixe em branco a conta que não quiser mexer. Lançamentos de dias anteriores continuam valendo para os relatórios.</p>
+    <div class="twrap"><table><thead><tr><th>Conta</th><th class="num">No app hoje</th><th class="num">No banco hoje</th></tr></thead><tbody>
+    ${C.map(c=>`<tr><td>${badgeConta(c.nome)} <b>${esc(c.nome)}</b>${c.saldoRef?`<br><span class="note">último acerto: ${fmtDateS(parseISO(c.saldoRef.data))}</span>`:''}</td><td class="num">${brl(saldoContaHoje(c))}</td><td class="num"><input class="pl-v" inputmode="decimal" data-ac="${c.id}" placeholder="0,00" style="width:130px;text-align:right;border:1px solid var(--border);border-radius:7px;padding:6px 8px"></td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="fbtns"><button class="btn primary" id="acOk">Salvar saldos</button></div>`, root=>{
+    $('#acOk').onclick=async()=>{ let n=0; root.querySelectorAll('[data-ac]').forEach(i=>{ if(!i.value.trim()) return; const c=byId('contas',i.dataset.ac); put('contas',Object.assign({},c,{saldoRef:{data:hoje, valor:numBR(i.value), ts:Date.now()}})); n++; });
+      if(!n){ toast('Digite pelo menos um saldo'); return; } closeModal(); await commit(`${n} saldo(s) acertado(s) ✓`); };
+  });
+}
+
 /* =====================================================================
    PLANEJAMENTO ANUAL — montar o orçamento do ano a dois (receitas,
    despesas por categoria, lazer e quanto guardar) e acompanhar depois
@@ -4730,7 +4817,7 @@ const r10 = v => Math.round(v/10)*10;
 /* gastos e receitas reais de um ano, por categoria (lançamentos + compras no cartão por parcela) */
 function realPorCat(ano){
   const out=[]; const add=(t,cat,sub,mes,v)=>{ if(v) out.push({t,cat:cat||'(sem categoria)',sub:sub||'',mes,v}); };
-  live('lanc').forEach(l=>{ if(!l.data||+l.data.slice(0,4)!==+ano) return; const mes=+l.data.slice(5,7);
+  live('lanc').forEach(l=>{ if(!l.data||+l.data.slice(0,4)!==+ano||ehTransf(l)) return; const mes=+l.data.slice(5,7);
     if(l.t==='R') add('R', l.plano||l.sub||l.cat||l.desc, l.ref||l.desc, mes, +l.valor||0); else add('D', l.cat||l.plano, l.sub||l.ref, mes, +l.valor||0); });
   live('compras').forEach(p=>Object.entries(p.parc||{}).forEach(([ym,v])=>{ if(+ym.slice(0,4)!==+ano) return; add('D', p.cat||(p.ref?'Cartão · '+p.ref:'Cartão (sem categoria)'), p.sub||p.desc, +ym.slice(5,7), +v||0); }));
   return out;
@@ -4834,7 +4921,7 @@ TABS.splice(TABS.findIndex(t=>t.id==='orcamento'),0,{id:'planejar',g:'gastos',ic
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.3.2';
+const APP_VER='1.4.1';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
