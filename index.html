@@ -3642,7 +3642,7 @@ function dbToState(ano){
     S.cartoes.push(card);
     S.cadCart.push({cartao:c.nome, aba:c.nome, ref:refFatura(c), limite:+c.limite||0, venc:+c.venc||0, melhor:+c.melhor||0, conta:c.conta||'', ativo:c.ativo!==false});
     for(let m=1;m<=12;m++){
-      const ym=ano+'-'+String(m).padStart(2,'0'); const tot=totalFatura(c.id, ym); const f=faturaRec(c.id, ym);
+      const ym=ano+'-'+String(m).padStart(2,'0'); const tot=totalFatura(c.id, ym)-dividaTransferida(c.id, ym); const f=faturaRec(c.id, ym);
       if(!tot && !f) continue;
       const venc=Math.min(28,Math.max(1,+c.venc||10));
       const pago=f && f.status==='PAGO';
@@ -3678,7 +3678,7 @@ function ehTransf(l){ if(l.transf) return true; const L=(cfg().planosTransf||[])
 function movsConta(c){
   const k=nkey(c.nome), out=[];
   live('lanc').forEach(l=>{ if(!PAGO_SET.has(norm(l.status)) || nkey(l.conta||'')!==k || !(+l.valor)) return; const d=(l.dataPag||l.data||'').slice(0,10); if(d) out.push({d, u:l.u||0, v:(l.t==='R'?1:-1)*(+l.valor)}); });
-  live('faturas').forEach(f=>{ if(f.status!=='PAGO') return; const cc=cartaoById(f.cartao); const conta=f.conta||(cc&&cc.conta)||''; if(nkey(conta)!==k) return;
+  live('faturas').forEach(f=>{ if(f.status!=='PAGO' || f.pagoCom) return; const cc=cartaoById(f.cartao); const conta=f.conta||(cc&&cc.conta)||''; if(nkey(conta)!==k) return;
     const v=f.valorPago!=null?+f.valorPago:totalFatura(f.cartao,f.ym); const d=(f.dataPag||(f.ym+'-'+String(Math.min(28,+(cc&&cc.venc)||10)).padStart(2,'0'))).slice(0,10); if(v) out.push({d, u:f.u||0, v:-v}); });
   return out;
 }
@@ -3694,6 +3694,8 @@ function saldoContaAntes(c, iso){
   return (+c.saldoIni||0) - sum(M.filter(m=>m.d>=iso && m.d<base),m=>m.v);
 }
 const saldoContaHoje = c => { const t=new Date(); t.setDate(t.getDate()+1); return saldoContaAntes(c, isoLocal(t)); };
+/* parte da fatura que é só a dívida de outro cartão (fatura paga com este cartão): já foi despesa no outro cartão */
+function dividaTransferida(cartaoId, ym){ return Math.round(sum(live('compras').filter(p=>p.cartao===cartaoId && p.divida), p=>{ const v=(p.parc||{})[ym]||0; return p.valor? v*Math.min(1,(+p.divida)/(+p.valor)) : 0; })*100)/100; }
 
 /* =====================================================================
    IMPORTAR a planilha Contas_2026 (uma vez, na migração)
@@ -3804,15 +3806,15 @@ function editarLanc(id){ const l=byId('lanc',id); if(!l) return; closeDetail();
 function abastDe(id){ const a=live('carro').find(x=>x.lanc===id); return a?{litros:fmtNumBR(a.litros), hod:a.hod?String(a.hod):'', posto:a.posto||'', cheio:a.cheio?'1':'0'}:{}; }
 function editarCompra(id){ const p=byId('compras',id); if(!p) return; closeDetail();
   const meses=Object.keys(p.parc||{}).sort();
-  abrirLancar(Object.assign({t:'C', data:p.data||'', desc:p.desc||'', valor:fmtNumBR(p.forma==='Recorrente'?(p.parc[meses[0]]||p.valor):p.valor), cat:p.cat||'', sub:p.sub||'', obs:p.obs||'', cartao:p.cartao, formaC:p.forma||'À Vista', n:p.forma==='À Vista'?2:(meses.length||p.n||1), refC:p.ref||'', fatura1:meses[0]||'', foto:p.foto||'', edit:{k:'compras',id}}, abastDe(id))); }
+  abrirLancar(Object.assign({t:'C', data:p.data||'', desc:p.desc||'', valor:fmtNumBR(Math.abs(p.forma==='Recorrente'?(p.parc[meses[0]]||p.valor):p.valor)), cat:p.cat||'', sub:p.sub||'', obs:p.obs||'', cartao:p.cartao, formaC:p.forma||'À Vista', n:p.forma==='À Vista'?2:(meses.length||p.n||1), refC:p.ref||'', fatura1:meses[0]||'', foto:p.foto||'', edit:{k:'compras',id}}, abastDe(id))); }
 
 function calcForm(f){
   const valor=numBR(f.valor); const c=f.t==='C'?cartaoById(f.cartao):null;
   const auto = c ? mesPrimeiraFatura(c, f.data) : '';
   const prim = f.t==='C' ? (f.fatura1||auto) : '';
-  const n = f.t==='C' ? (f.formaC==='À Vista'?1:Math.max(1,parseInt(f.n)||1)) : Math.max(1,parseInt(f.repetir)||1);
+  const n = f.t==='C' ? ((f.formaC==='À Vista'||f.formaC==='Estorno')?1:Math.max(1,parseInt(f.n)||1)) : Math.max(1,parseInt(f.repetir)||1);
   const linhas=[];
-  if(f.t==='C'){ if(prim){ const p=Math.round(valor/n*100)/100; for(let k=0;k<n;k++){ const v = f.formaC==='Parcelado' ? (k<n-1?p:Math.round((valor-p*(n-1))*100)/100) : valor; linhas.push({k:k+1, quando:ymLabel(ymAdd(prim,k)), ym:ymAdd(prim,k), v}); } } }
+  if(f.t==='C'){ if(prim){ const p=Math.round(valor/n*100)/100; for(let k=0;k<n;k++){ const v = f.formaC==='Estorno' ? -valor : f.formaC==='Parcelado' ? (k<n-1?p:Math.round((valor-p*(n-1))*100)/100) : valor; linhas.push({k:k+1, quando:ymLabel(ymAdd(prim,k)), ym:ymAdd(prim,k), v}); } } }
   else if(f.t==='T') linhas.push({k:1, quando:fmtDateS(parseISO(f.data)), iso:f.data, v:valor});
   else for(let k=0;k<n;k++) linhas.push({k:k+1, quando:fmtDateS(parseISO(addMesesISO(f.data,k))), iso:addMesesISO(f.data,k), v:valor});
   let falta='';
@@ -3854,7 +3856,7 @@ function renderLancar(v){
       </div>
       <div class="fgrid" data-only="C">
         ${field('Cartão',`<select name="cartao">${opt(cards.map(c=>[c.id,c.nome+(c.final?' · '+c.final:'')]),f.cartao,cards.length?null:'Cadastre um cartão')}</select>`)}
-        ${field('Forma',segBtns('formaC',[['À Vista','À vista'],['Parcelado','Parcelado'],['Recorrente','Recorrente']],f.formaC))}
+        ${field('Forma',segBtns('formaC',[['À Vista','À vista'],['Parcelado','Parcelado'],['Recorrente','Recorrente'],['Estorno','Estorno']],f.formaC))}
         ${field('',`<input type="number" min="1" max="72" name="n" value="${esc(f.n)}">`,'only-parc').replace('<span class="fl"></span>',`<span class="fl" id="lblN"></span>`)}
         ${field('Referente no cartão',`<input name="refC" list="dlRefC" value="${esc(f.refC)}" autocomplete="off">`,'','Opcional (ex.: Carro, Casa). Se vazio, usa a subcategoria.')}
         ${field('1ª fatura',`<input type="month" name="fatura1" value="${esc(f.fatura1)}">`,'','<span id="hintFat"></span>')}
@@ -3881,9 +3883,9 @@ function renderLancar(v){
     root.querySelectorAll('[data-only]').forEach(el=>el.classList.toggle('hidden', !el.dataset.only.includes(f.t==='C'?'C':f.t)));
     root.querySelectorAll('.no-t').forEach(el=>el.classList.toggle('hidden', f.t==='T'));
     root.querySelectorAll('.only-pago').forEach(el=>el.classList.toggle('hidden', f.status!=='PAGO'));
-    root.querySelectorAll('.only-parc').forEach(el=>el.classList.toggle('hidden', f.formaC==='À Vista'));
+    root.querySelectorAll('.only-parc').forEach(el=>el.classList.toggle('hidden', f.formaC==='À Vista'||f.formaC==='Estorno'));
     $('#lblData').textContent = f.t==='T'?'Data da transferência':f.t==='C'?'Data da compra':f.t==='R'?'Data (recebimento)':'Data (vencimento)';
-    $('#lblValor').textContent = f.t==='C'?(f.formaC==='Recorrente'?'Valor por mês':'Valor total da compra'):'Valor';
+    $('#lblValor').textContent = f.t==='C'?(f.formaC==='Estorno'?'Valor estornado (crédito na fatura)':f.formaC==='Recorrente'?'Valor por mês':'Valor total da compra'):'Valor';
     if($('#lblConta')) $('#lblConta').textContent = f.status==='PAGO'?'Conta (de onde saiu / entrou)':'Conta (prevista)';
     $('#lblN').textContent = f.formaC==='Recorrente'?'Quantos meses':'Nº de parcelas';
     const ab=$('#abast'); if(ab){ ab.classList.toggle('hidden',!ehComb(f)); const lt=numBR(f.litros), vv=numBR(f.valor); $('#hintPL').textContent = lt&&vv ? 'Preço do litro: '+brl(vv/lt) : ''; }
@@ -3932,7 +3934,7 @@ async function salvarForm(v){
   if(f.t==='C'){
     const parc={}; r.linhas.forEach(x=>parc[x.ym]=Math.round(((parc[x.ym]||0)+x.v)*100)/100);
     const rec = f.edit ? Object.assign({}, byId('compras',f.edit.id)) : {};
-    Object.assign(rec,{cartao:f.cartao, data:f.data, desc:f.desc.trim(), ref:f.refC.trim()||f.sub||f.cat||'', forma:f.formaC, valor:f.formaC==='Recorrente'?Math.round(r.valor*r.n*100)/100:r.valor, n:r.n, parc, cat:f.cat.trim(), sub:f.sub.trim(), obs:f.obs.trim(), foto});
+    Object.assign(rec,{cartao:f.cartao, data:f.data, desc:f.desc.trim(), ref:f.refC.trim()||f.sub||f.cat||'', forma:f.formaC, valor:f.formaC==='Estorno'?-r.valor:f.formaC==='Recorrente'?Math.round(r.valor*r.n*100)/100:r.valor, n:r.n, parc, cat:f.cat.trim(), sub:f.sub.trim(), obs:f.obs.trim(), foto});
     put('compras', rec); ids.push(rec.id); lsSet('fin-ult-cartao', f.cartao); garantirLista('refCartao', rec.ref);
   } else {
     if(f.edit){ const rec=Object.assign({}, byId('lanc',f.edit.id)); Object.assign(rec,{t:f.t,data:f.data,desc:f.desc.trim(),valor:r.valor,cat:f.cat.trim(),sub:f.sub.trim(),obs:f.obs.trim(),plano:f.plano.trim(),ref:f.ref.trim(),status:f.status,conta:f.conta||'',dataPag:f.status==='PAGO'?f.dataPag:'',forma:f.forma.trim(),tipo:f.tipo,foto}); put('lanc',rec); ids.push(rec.id); }
@@ -4049,11 +4051,12 @@ function renderBaixas(v){
     <div class="fbtns"><button class="btn primary big" id="bxGo" ${marc.length?'':'disabled'}>Dar baixa em ${marc.length} ${marc.length===1?'item':'itens'}${marc.length?` · ${tot?'pagar '+brl(tot):''}${tot&&totR?' / ':''}${totR?'receber '+brl(totR):''}`:''}</button>
       <button class="btn" id="bxAll">${marc.length===I.length&&I.length?'Desmarcar todos':'Marcar todos'}</button><span class="note">${I.length} em aberto até ${fmtDateS(parseISO(BX.ate))}</span></div></div>
     <div class="bx-list">${I.map(i=>`<label class="bx-it ${BX.sel.has(i.key)?'on':''} ${i.data&&i.data<hoje?'late':''}"><input type="checkbox" data-k="${esc(i.key)}" ${BX.sel.has(i.key)?'checked':''}>
-      <span class="bx-d">${i.data?fmtDateS(parseISO(i.data)):'sem data'}</span><span class="bx-n"><b>${esc(i.nome)}</b><span class="note">${esc(i.tipo)}${i.det?' · '+esc(i.det):''}${i.cartao?' '+badgeCard(cartaoById(i.cartao)):''}${i.conta&&!i.cartao&&!semContas()?' '+badgeConta(i.conta):''}</span></span><span class="bx-v ${i.tipo==='Entrada'?'st-good':''}">${brl(i.valor)}${i.tipo==='Saída'&&cartoesAtivos().length?`<button type="button" class="btn small bx-cc" data-cc="${esc(i.id)}" title="Paguei esta conta com o cartão de crédito">💳 Pagar com cartão</button>`:''}</span></label>`).join('')||'<p class="note" style="padding:14px">Nada em aberto nesse filtro. 🎉</p>'}</div>`;
+      <span class="bx-d">${i.data?fmtDateS(parseISO(i.data)):'sem data'}</span><span class="bx-n"><b>${esc(i.nome)}</b><span class="note">${esc(i.tipo)}${i.det?' · '+esc(i.det):''}${i.cartao?' '+badgeCard(cartaoById(i.cartao)):''}${i.conta&&!i.cartao&&!semContas()?' '+badgeConta(i.conta):''}</span></span><span class="bx-v ${i.tipo==='Entrada'?'st-good':''}">${brl(i.valor)}${i.tipo==='Saída'&&cartoesAtivos().length?`<button type="button" class="btn small bx-cc" data-cc="${esc(i.id)}" title="Paguei esta conta com o cartão de crédito">💳 Pagar com cartão</button>`:''}${i.tipo==='Fatura'&&cartoesAtivos().length>1?`<button type="button" class="btn small bx-cc" data-ccf="${esc(i.cartao+'|'+i.ym)}" title="Paguei esta fatura com outro cartão">💳 Pagar com outro cartão</button>`:''}</span></label>`).join('')||'<p class="note" style="padding:14px">Nada em aberto nesse filtro. 🎉</p>'}</div>`;
   $('#bxTipo').onchange=e=>{ BX.tipo=e.target.value; renderBaixas(v); };
   $('#bxAte').onchange=e=>{ BX.ate=e.target.value||BX.ate; renderBaixas(v); };
   if($('#bxConta')) $('#bxConta').onchange=e=>BX.conta=e.target.value;
   v.querySelectorAll('[data-cc]').forEach(b=>b.onclick=e=>{ e.preventDefault(); e.stopPropagation(); pagarComCartao(b.dataset.cc); });
+  v.querySelectorAll('[data-ccf]').forEach(b=>b.onclick=e=>{ e.preventDefault(); e.stopPropagation(); const [cid,ym]=b.dataset.ccf.split('|'); pagarFaturaComCartao(cid, ym); });
   $('#bxData').onchange=e=>BX.data=e.target.value;
   v.querySelectorAll('[data-k]').forEach(c=>c.onchange=()=>{ if(c.checked) BX.sel.add(c.dataset.k); else BX.sel.delete(c.dataset.k); renderBaixas(v); });
   $('#bxAll').onclick=()=>{ if(marc.length===I.length) BX.sel.clear(); else I.forEach(i=>BX.sel.add(i.key)); renderBaixas(v); };
@@ -4079,8 +4082,8 @@ function renderFaturas(v){
   v.innerHTML = pageHead('Faturas e conferência','Fatura de cada cartão por mês (soma das parcelas). Toque numa compra para editar.')
   + `<div class="ttools">${cards.map(x=>`<button class="chip" data-card="${x.id}" aria-pressed="${x.id===c.id}">${badgeCard(x,1)} ${esc(x.nome)}</button>`).join('')}</div>
     <div class="ttools"><button class="btn small" id="ftPrev">◀</button><b style="min-width:90px;text-align:center">Fatura de ${ymLabel(FT.ym)}</b><button class="btn small" id="ftNext">▶</button><span class="spacer"></span><button class="btn small primary" id="ftNova">+ Compra neste cartão</button></div>
-    <div class="kpis">${kpi('Total da fatura',brl(tot),itens.length+' item(ns)','blue')}${kpi('Situação',pago?'Paga':'Em aberto',pago?(f.conta?'🏦 '+esc(f.conta):'')+(f.dataPag?' · '+fmtDateS(parseISO(f.dataPag)):''):'vence dia '+(c.venc||'—'),pago?'green':'amber')}${!c.limite?'':kpi('Limite livre',c.limite?brl(c.limite-sum(live('compras').filter(p=>p.cartao===c.id),p=>sum(Object.entries(p.parc||{}).filter(([k])=>k>=FT.ym),([,x])=>x))):'—',c.limite?'de '+brl(c.limite):'sem limite no cadastro','green')}${f&&f.valorPago!=null&&pago&&Math.abs(f.valorPago-tot)>.005?kpi('Valor pago',brl(f.valorPago),'diferente do total','purple'):''}</div>
-    <div class="fbtns">${pago?'<button class="btn" id="ftReabrir">Reabrir fatura</button>':`${semContas()?'':`<select id="ftConta">${opt(contasAtivas(),(f&&f.conta)||c.conta||'','Conta que pagou (opcional)')}</select>`}<input type="date" id="ftData" value="${hojeISO()}" title="Data do pagamento"><input id="ftValor" inputmode="decimal" value="${esc(fmtNumBR(tot))}" style="width:120px" title="Valor pago (mude se pagou com juros ou só uma parte)"><button class="btn primary" id="ftPagar" ${tot?'':'disabled'}>Pagar fatura</button><span class="note">Pagou um valor diferente? Mude o valor: o app pergunta se foi juros ou pagamento parcial.</span>`}</div>
+    <div class="kpis">${kpi('Total da fatura',brl(tot),itens.length+' item(ns)','blue')}${kpi('Situação',pago?'Paga':'Em aberto',pago?(f.pagoCom?'💳 paga com '+esc((cartaoById(f.pagoCom)||{}).nome||'outro cartão'):f.conta?'🏦 '+esc(f.conta):'')+(f.dataPag?' · '+fmtDateS(parseISO(f.dataPag)):''):'vence dia '+(c.venc||'—'),pago?'green':'amber')}${!c.limite?'':kpi('Limite livre',c.limite?brl(c.limite-sum(live('compras').filter(p=>p.cartao===c.id),p=>sum(Object.entries(p.parc||{}).filter(([k])=>k>=FT.ym),([,x])=>x))):'—',c.limite?'de '+brl(c.limite):'sem limite no cadastro','green')}${f&&f.valorPago!=null&&pago&&Math.abs(f.valorPago-tot)>.005?kpi('Valor pago',brl(f.valorPago),'diferente do total','purple'):''}</div>
+    <div class="fbtns">${pago?'<button class="btn" id="ftReabrir">Reabrir fatura</button>':`${semContas()?'':`<select id="ftConta">${opt(contasAtivas(),(f&&f.conta)||c.conta||'','Conta que pagou (opcional)')}</select>`}<input type="date" id="ftData" value="${hojeISO()}" title="Data do pagamento"><input id="ftValor" inputmode="decimal" value="${esc(fmtNumBR(tot))}" style="width:120px" title="Valor pago (mude se pagou com juros ou só uma parte)"><button class="btn primary" id="ftPagar" ${tot?'':'disabled'}>Pagar fatura</button>${cartoesAtivos().length>1&&tot?'<button class="btn" id="ftPagarCC">💳 Pagar com outro cartão</button>':''}<span class="note">Pagou um valor diferente? Mude o valor: o app pergunta se foi juros ou pagamento parcial.</span>`}</div>
     <div class="grid"><div class="card c8"><h3>Compras da fatura</h3><div class="twrap"><table id="tFt"></table></div></div>
     <div class="card c4"><h3>Próximas faturas</h3><div class="twrap short"><table><tbody>${prox.map(x=>`<tr class="clk" data-ym="${x.ym}"><td>${ymLabel(x.ym)}</td><td class="num">${brl(x.v)}</td><td>${x.st==='PAGO'?'<span class="pill">paga</span>':''}</td></tr>`).join('')}</tbody></table></div></div>
     <div class="card c12"><h3>Conferir com a fatura do banco</h3><div class="sub">Escolha a fatura baixada do banco (PDF, Excel ou CSV — Itaú, Mercado Pago, PicPay, Nubank…). O app compara com as compras deste cartão em ${ymLabel(FT.ym)}.</div>
@@ -4092,7 +4095,8 @@ function renderFaturas(v){
   $('#ftPrev').onclick=()=>{ FT.ym=ymAdd(FT.ym,-1); FT.conf=null; renderFaturas(v); }; $('#ftNext').onclick=()=>{ FT.ym=ymAdd(FT.ym,1); FT.conf=null; renderFaturas(v); };
   $('#ftNova').onclick=()=>abrirLancar({t:'C',cartao:c.id});
   if($('#ftPagar')) $('#ftPagar').onclick=()=>pagarFatura(c, FT.ym, tot, f, $('#ftConta')?$('#ftConta').value:'', $('#ftData').value, numBR($('#ftValor').value), ()=>renderFaturas(v));
-  if($('#ftReabrir')) $('#ftReabrir').onclick=async()=>{ const aj=live('compras').filter(p=>p.fatAjuste===f.id); if(aj.length && !confirm(`Reabrir a fatura também desfaz ${aj.length} ajuste(s) criados no pagamento (juros ou restante). Continuar?`)) return; aj.forEach(p=>del('compras',p.id)); put('faturas',Object.assign({},f,{status:'EM ABERTO',dataPag:'',valorPago:null})); await commit('Fatura reaberta'); renderFaturas(v); };
+  if($('#ftPagarCC')) $('#ftPagarCC').onclick=()=>pagarFaturaComCartao(c.id, FT.ym);
+  if($('#ftReabrir')) $('#ftReabrir').onclick=async()=>{ const aj=live('compras').filter(p=>p.fatAjuste===f.id); if(aj.length && !confirm(`Reabrir a fatura também desfaz ${aj.length} ajuste(s) criados no pagamento (juros ou restante). Continuar?`)) return; aj.forEach(p=>del('compras',p.id)); put('faturas',Object.assign({},f,{status:'EM ABERTO',dataPag:'',valorPago:null,pagoCom:''})); await commit('Fatura reaberta'); renderFaturas(v); };
   $('#ftArq').onchange=async e=>{ const file=e.target.files[0]; if(!file) return; try{ let r; if(/\.pdf$/i.test(file.name)||file.type==='application/pdf'){ toast('Lendo o PDF…'); r=await lerFaturaPDF(file); } else { const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array',cellDates:true}); r=lerFaturaBanco(wb); } if(r.ym && r.ym!==FT.ym && confirm(`O arquivo é da fatura de ${ymLabel(r.ym)}. Mudar para esse mês?`)) FT.ym=r.ym; FT.conf=conferir(c.id,FT.ym,r.linhas); FT.conf.texto=r.texto||null; renderFaturas(v); }catch(err){ console.error(err); toast('Não consegui ler o arquivo: '+err.message); } };
   if(FT.conf) mostrarConf(c);
 }
@@ -4804,6 +4808,36 @@ function acertarSaldos(){
   });
 }
 
+/* ---------- pagar a fatura de um cartão usando outro cartão ---------- */
+function pagarFaturaComCartao(cId, ym){
+  const A=cartaoById(cId); const tot=totalFatura(cId,ym); if(!(tot>0)){ toast('Fatura sem valor'); return; }
+  const outros=cartoesAtivos().filter(c=>c.id!==cId); if(!outros.length){ toast('Cadastre o outro cartão primeiro'); return; }
+  const P={cartao:outros[0].id, data:hojeISO(), valor:fmtNumBR(tot), formaC:'À Vista', n:2, fatura1:''};
+  const calc=()=>calcForm({t:'C', data:P.data, desc:'x', valor:P.valor, cartao:P.cartao, formaC:P.formaC, n:P.n, fatura1:P.fatura1});
+  const html=()=>{ const r=calc(); const dif=Math.round((numBR(P.valor)-tot)*100)/100;
+    return `<button class="btn small x" data-close>✕</button><h2>💳 Pagar a fatura com outro cartão</h2>
+    <p class="note">Fatura <b>${esc(A.nome)} · ${ymLabel(ym)}</b>: ${brl(tot)}. Ela fica <b>paga</b>, e o valor vira uma compra no cartão escolhido (entra na fatura dele). As compras já contaram como despesa no ${esc(A.nome)}, então o app <b>não conta de novo</b> — só os juros/taxa, se houver.</p>
+    <div class="fgrid frm" id="pfF">
+      ${field('Pagar com o cartão',`<select name="cartao">${opt(outros.map(c=>[c.id,c.nome+(c.final?' · '+c.final:'')]),P.cartao)}</select>`)}
+      ${field('Data',`<input type="date" name="data" value="${esc(P.data)}">`)}
+      ${field('Valor cobrado no outro cartão',`<input name="valor" inputmode="decimal" value="${esc(P.valor)}">`,'','Mude se teve juros ou taxa.')}
+      ${field('Forma',`<select name="formaC">${opt([['À Vista','À vista'],['Parcelado','Parcelado']],P.formaC)}</select>`)}
+      ${P.formaC==='Parcelado'?field('Nº de parcelas',`<input type="number" min="2" max="48" name="n" value="${esc(P.n)}">`):''}
+      ${field('1ª fatura',`<input type="month" name="fatura1" value="${esc(P.fatura1||r.prim)}">`)}
+    </div>
+    <p class="note">${r.linhas.slice(0,4).map(x=>x.quando+' '+brl(x.v)).join(' · ')}${r.linhas.length>4?' …':''}${dif>0.004?` · juros/taxa de ${brl(dif)} (conta como despesa)`:''}</p>
+    ${r.falta?`<div class="fmsg warn">${esc(r.falta)}</div>`:''}
+    <div class="fbtns"><button class="btn primary" id="pfOk" ${r.falta?'disabled':''}>Confirmar</button><button class="btn" data-close>Cancelar</button></div>`; };
+  const mount=root=>{ root.querySelectorAll('#pfF [name]').forEach(el=>el.onchange=()=>{ P[el.name]=el.value; if(el.name==='cartao'||el.name==='data') P.fatura1=''; const m=$('#modalRoot .modal')||root; m.innerHTML=html(); mount(m); });
+    const ok=$('#pfOk'); if(ok) ok.onclick=async()=>{ const r=calc(); if(r.falta){ toast(r.falta); return; }
+      const B=cartaoById(P.cartao), fid=cId+'|'+ym; const parc={}; r.linhas.forEach(x=>parc[x.ym]=Math.round(((parc[x.ym]||0)+x.v)*100)/100);
+      put('compras',{cartao:P.cartao, data:P.data, desc:'Pagamento da fatura '+A.nome+' '+ymLabel(ym), ref:'Pagamento de fatura', forma:P.formaC, valor:r.valor, n:r.n, parc, cat:'FINANCEIRO', sub:'PAGAMENTO DE FATURA', divida:Math.min(tot,r.valor), fatAjuste:fid, obs:'Fatura do '+A.nome+' paga com o '+B.nome});
+      put('faturas',Object.assign({id:fid,cartao:cId,ym},faturaRec(cId,ym)||{},{status:'PAGO',conta:'',dataPag:P.data,valorPago:tot,pagoCom:P.cartao}));
+      closeModal(); await commit('Fatura paga com o '+B.nome+' ✓'); };
+  };
+  modal(html(), mount);
+}
+
 /* =====================================================================
    PLANEJAMENTO ANUAL — montar o orçamento do ano a dois (receitas,
    despesas por categoria, lazer e quanto guardar) e acompanhar depois
@@ -4922,7 +4956,7 @@ TABS.splice(TABS.findIndex(t=>t.id==='orcamento'),0,{id:'planejar',g:'gastos',ic
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.4.2';
+const APP_VER='1.4.3';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
