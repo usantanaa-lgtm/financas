@@ -4914,7 +4914,7 @@ function realPorCat(ano){
   const out=[]; const add=(t,cat,sub,mes,v)=>{ if(v) out.push({t,cat:cat||'(sem categoria)',sub:sub||'',mes,v}); };
   live('lanc').forEach(l=>{ if(!l.data||+l.data.slice(0,4)!==+ano||ehTransf(l)) return; const mes=+l.data.slice(5,7);
     if(l.t==='R') add('R', l.plano||l.sub||l.cat||l.desc, l.ref||l.desc, mes, +l.valor||0); else add('D', l.cat||l.plano, l.sub||l.ref, mes, +l.valor||0); });
-  live('compras').forEach(p=>Object.entries(p.parc||{}).forEach(([ym,v])=>{ if(+ym.slice(0,4)!==+ano) return; add('D', p.cat||(p.ref?'Cartão · '+p.ref:'Cartão (sem categoria)'), p.sub||p.desc, +ym.slice(5,7), +v||0); }));
+  live('compras').forEach(p=>!p.fatAjuste&&Object.entries(p.parc||{}).forEach(([ym,v])=>{ if(+ym.slice(0,4)!==+ano) return; add('D', p.cat||(p.ref?'Cartão · '+p.ref:'Cartão (sem categoria)'), p.sub||p.desc, +ym.slice(5,7), +v||0); }));
   return out;
 }
 /* base de um ano: no ano atual, só de janeiro até o mês atual (o resto do ano ainda não aconteceu) */
@@ -4931,8 +4931,8 @@ function renderPlanejar(v){
   const nb=mesesComDadoAno(PL.base); const baseCat=mapaBase(realBase(PL.base));
   PL.ctx={v, baseCat, nb, rf:(PL.ano<=hoje.getFullYear()&&P.length)?plRealizado(PL.ano):null};
   v.innerHTML = pageHead('Planejamento anual', 'Sentem juntos e combinem quanto entra, quanto pode sair em cada categoria, o lazer e quanto guardar. Depois o app compara com o que for lançado.',
-      `<span class="mini">Planejar <select id="plAno" class="btn small">${opt(anos.map(String),String(PL.ano))}</select> com base em <select id="plBase" class="btn small">${opt(anosDisponiveis().concat([PL.ano-1]).filter((x,i,a)=>a.indexOf(x)===i).sort().map(String),String(PL.base))}</select></span>`)
-  + (P.length?'':`<div class="infobox">Ainda não há plano para <b>${PL.ano}</b>. <button class="btn primary" id="plGerar">✨ Montar a partir de ${PL.base}</button> — o app sugere, para cada categoria, a média por mês de ${PL.base} (média de ${nb} ${nb>1?'meses':'mês'}). Depois é só ajustar.${plLive(PL.ano-1).length?` <button class="btn" id="plCopiar">Copiar o plano de ${PL.ano-1}</button>`:''}</div>`)
+      `<span class="mini">Planejar <select id="plAno" class="btn small">${opt(anos.map(String),String(PL.ano))}</select> com base em <select id="plBase" class="btn small">${opt(anosDisponiveis().concat([PL.ano-1]).filter((x,i,a)=>a.indexOf(x)===i).sort().map(String),String(PL.base))}</select>${P.length?` <button class="btn small" id="plReset" title="Apagar todas as linhas deste ano e recomeçar">🔄 Recomeçar</button>`:''}</span>`)
+  + (P.length?'':`<div class="infobox">Ainda não há plano para <b>${PL.ano}</b>. <div class="fbtns" style="margin-top:8px"><button class="btn primary" id="plGerar">✨ Escolher o que trazer de ${PL.base}</button> <button class="btn" id="plBranco">📄 Começar em branco</button></div><span class="note">Em “Escolher”, vocês marcam só as categorias que importam e o app sugere a média por mês de ${PL.base} (média de ${nb} ${nb>1?'meses':'mês'}). Em branco, vocês incluem linha por linha.</span>${plLive(PL.ano-1).length?` <button class="btn" id="plCopiar">Copiar o plano de ${PL.ano-1}</button>`:''}</div>`)
   + `<div id="plResumo"></div>
     <div class="grid">
       ${card('c12','Mês a mês do plano','Barras: o que entra × o que sai (despesas + lazer + guardar). Vermelho = mês em que sai mais do que entra.','<div id="plChW"></div>')}
@@ -4943,7 +4943,10 @@ function renderPlanejar(v){
   // eventos
   $('#plAno').onchange=e=>{ PL.ano=+e.target.value; PL.base=PL.ano-1; renderPlanejar(v); };
   $('#plBase').onchange=e=>{ PL.base=+e.target.value; renderPlanejar(v); };
-  if($('#plGerar')) $('#plGerar').onclick=async()=>{ plGerar(PL.ano,PL.base); await plSalvarTudo('Plano montado — agora ajustem os valores ✓'); };
+  if($('#plGerar')) $('#plGerar').onclick=()=>plEscolher(PL.ano,PL.base);
+  if($('#plBranco')) $('#plBranco').onclick=async()=>{ plBase0(PL.ano); await plSalvarTudo('Plano em branco criado — incluam as linhas ✓'); };
+  if($('#plReset')) $('#plReset').onclick=async()=>{ const n=plLive(PL.ano).length; if(!confirm(`Apagar as ${n} linhas do plano de ${PL.ano} e recomeçar?\n\nOs lançamentos não são afetados — só o plano.`)) return; plLive(PL.ano).forEach(p=>del('planos',p.id)); await plSalvarTudo('Plano apagado — escolham como recomeçar'); };
+  v.querySelectorAll('[data-plsel]').forEach(b=>b.onclick=async()=>{ const g=b.dataset.plsel; const ids=[...v.querySelectorAll(`[data-plck="${g}"]:checked`)].map(c=>c.value); if(!ids.length){ toast('Marque as linhas que quer tirar'); return; } if(!confirm(`Tirar ${ids.length} linha(s) do plano?`)) return; ids.forEach(id=>del('planos',id)); await plSalvarTudo(ids.length+' linha(s) removida(s)'); });
   if($('#plCopiar')) $('#plCopiar').onclick=async()=>{ plLive(PL.ano-1).forEach(p=>put('planos',{ano:PL.ano,g:p.g,nome:p.nome,meses:p.meses.slice(),obs:p.obs||''})); await plSalvarTudo('Plano copiado ✓'); };
   v.querySelectorAll('[data-plm]').forEach(inp=>{ inp.onchange=()=>{ const p=byId('planos',inp.dataset.plm); if(!p) return; if(!inp.value.trim()&&inp.placeholder==='varia') return; const x=Math.round(numBR(inp.value)*100)/100; inp.value=fmtNumBR(x); inp.placeholder='0,00'; plSalvar(Object.assign({},p,{meses:Array(12).fill(x)})); };
     inp.onfocus=()=>setTimeout(()=>{ try{ inp.select(); }catch(e){} },0);
@@ -4983,12 +4986,37 @@ function plTabela(g, linhas, baseCat, nb){
   const comBase = g==='R'||g==='D';
   return `<div class="twrap"><table class="pl-t"><thead><tr><th>${g==='D'?'Categoria':g==='G'?'Objetivo':'Linha'}</th>${comBase?`<th class="num">Média/mês em ${PL.base}</th>`:''}<th class="num">Por mês</th><th class="num">No ano</th><th></th></tr></thead><tbody>
     ${lin.map(p=>{ const m=p.meses||Array(12).fill(0); const igual=m.every(x=>Math.abs((+x||0)-(+m[0]||0))<0.005); const b=comBase?baseCat(g==='R'?'R':'D',p.nome)/nb:0;
-      return `<tr><td><input class="pl-nome" data-pln="${p.id}" value="${esc(p.nome)}"></td>${comBase?`<td class="num note">${b?brl(b):'—'}${b&&Math.abs(b-(+m[0]||0))>5&&igual?` <button class="btn small ghost" data-plsug="${p.id}" title="Usar a média de ${PL.base}">↺</button>`:''}</td>`:''}
+      return `<tr><td style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-plck="${g}" value="${p.id}" title="Marcar para tirar várias de uma vez"><input class="pl-nome" data-pln="${p.id}" value="${esc(p.nome)}"></td>${comBase?`<td class="num note">${b?brl(b):'—'}${b&&Math.abs(b-(+m[0]||0))>5&&igual?` <button class="btn small ghost" data-plsug="${p.id}" title="Usar a média de ${PL.base}">↺</button>`:''}</td>`:''}
         <td class="num"><input class="pl-v" inputmode="decimal" data-plm="${p.id}" value="${igual?esc(fmtNumBR(m[0])):''}" placeholder="${igual?'0,00':'varia'}"></td>
         <td class="num"><b data-pltot="${p.id}">${brl(somaM(m))}</b></td>
         <td style="white-space:nowrap"><button class="btn small" data-plmes="${p.id}" title="Valores diferentes por mês (ex.: viagem em julho, IPVA em janeiro)">✏️ mês a mês</button> <button class="btn small ghost" data-pldel="${p.id}" title="Tirar do plano">🗑</button></td></tr>`; }).join('')||`<tr><td colspan="5" class="note">Nenhuma linha ainda.</td></tr>`}
     </tbody><tfoot><tr><td>Total</td>${comBase?`<td class="num">${brl(sum(lin,p=>baseCat(g==='R'?'R':'D',p.nome)/nb))}</td>`:''}<td class="num" data-plfm="${g}">${brl(sum(lin,p=>somaM(p.meses))/12)}</td><td class="num" data-plfa="${g}">${brl(sum(lin,p=>somaM(p.meses)))}</td><td></td></tr></tfoot></table></div>
-    <div class="fbtns"><button class="btn small" data-pladd="${g}">+ Incluir ${g==='D'?'categoria':g==='G'?'objetivo':'linha'}</button></div>`;
+    <div class="fbtns">${lin.length?`<button class="btn small ghost" data-plsel="${g}">🗑 Tirar marcadas</button> `:''}<button class="btn small" data-pladd="${g}">+ Incluir ${g==='D'?'categoria':g==='G'?'objetivo':'linha'}</button></div>`;
+}
+function plBase0(ano){
+  if(!plLive(ano).some(p=>p.g==='G')) put('planos',{ano,g:'G',nome:'Reserva de emergência',meses:Array(12).fill(0),obs:''});
+  if(!plLive(ano).some(p=>p.g==='L')) put('planos',{ano,g:'L',nome:'Lazer e passeios',meses:Array(12).fill(0),obs:''});
+}
+const plEhLazer = nome => /lazer|viage|passeio|restaur|divers|cinema|show/.test(norm(nome));
+function plSugestoes(base){ const RB=realBase(base), nb=mesesComDadoAno(base);
+  const ag=t=>{ const m=new Map(); RB.filter(x=>x.t===t).forEach(x=>{ const k=nkey(x.cat); const e=m.get(k)||{nome:x.cat,v:0,t}; e.v+=x.v; m.set(k,e); }); return [...m.values()].filter(e=>e.v>0.5).sort((a,b)=>b.v-a.v); };
+  return {R:ag('R'), D:ag('D'), nb}; }
+/* escolher, categoria por categoria, o que entra no plano */
+function plEscolher(ano, base){
+  const S=plSugestoes(base); const ja=new Set(plLive(ano).map(p=>p.g+'|'+nkey(p.nome)));
+  const bloco=(t,tit)=>!S[t].length?'':`<h4>${tit}</h4><div class="fbtns"><button class="btn small ghost" data-mk="${t}" data-on="1">Marcar todas</button> <button class="btn small ghost" data-mk="${t}" data-on="0">Desmarcar todas</button></div>
+    <div class="twrap short" style="max-height:38vh"><table><tbody>${S[t].map((e,i)=>`<tr><td style="width:28px"><input type="checkbox" data-sg="${t}" data-i="${i}"></td><td>${esc(e.nome)}${t==='D'&&plEhLazer(e.nome)?' <span class="note">(vai para Lazer)</span>':''}</td><td class="num">${brl(e.v/S.nb)}/mês</td><td class="num note">${brl(e.v)} em ${base}</td></tr>`).join('')}</tbody></table></div>`;
+  modal(`<button class="btn small x" data-close>✕</button><h2>O que trazer de ${base} para ${ano}?</h2>
+    <p class="note">Marque só o que faz sentido planejar. O que não marcar fica de fora — dá para incluir depois com “+ Incluir”. Valores sugeridos: média por mês de ${base} (${S.nb} ${S.nb>1?'meses':'mês'}), arredondada.</p>
+    ${bloco('R','💰 Receitas')}${bloco('D','🧾 Despesas por categoria')}${!S.R.length&&!S.D.length?'<div class="infobox">Não há lançamentos em '+base+'. Use “Começar em branco”.</div>':''}
+    <div class="fbtns"><span class="mini" id="sgN"></span><button class="btn primary" id="sgOk">Montar o plano</button></div>`, root=>{
+    const cnt=()=>{ $('#sgN').textContent=root.querySelectorAll('[data-sg]:checked').length+' marcada(s)'; };
+    root.querySelectorAll('[data-sg]').forEach(c=>c.onchange=cnt); cnt();
+    root.querySelectorAll('[data-mk]').forEach(b=>b.onclick=()=>{ root.querySelectorAll(`[data-sg="${b.dataset.mk}"]`).forEach(c=>c.checked=b.dataset.on==='1'); cnt(); });
+    $('#sgOk').onclick=async()=>{ const sel=[...root.querySelectorAll('[data-sg]:checked')].map(c=>S[c.dataset.sg][+c.dataset.i]);
+      sel.forEach(e=>{ const g=e.t==='R'?'R':(plEhLazer(e.nome)?'L':'D'); if(ja.has(g+'|'+nkey(e.nome))) return; put('planos',{ano,g,nome:e.nome,meses:Array(12).fill(r10(e.v/S.nb)),obs:''}); });
+      plBase0(ano); closeModal(); await plSalvarTudo(sel.length?'Plano montado com '+sel.length+' linha(s) — agora ajustem os valores ✓':'Plano criado — incluam as linhas ✓'); };
+  });
 }
 function plGerar(ano, base){
   const RB=realBase(base), nb=mesesComDadoAno(base);
@@ -5034,7 +5062,7 @@ TABS.splice(TABS.findIndex(t=>t.id==='orcamento'),0,{id:'planejar',g:'gastos',ic
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.4.6';
+const APP_VER='1.4.7';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
