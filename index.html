@@ -3818,7 +3818,10 @@ function importarPlanilha(wb, nomeArq){
     if(card){
       const ym=ymOf(o.data), id=card.id+'|'+ym; const ex=D.faturas.find(f=>f.id===id);
       const rec={id, cartao:card.id, ym, status:o.pago?'PAGO':'EM ABERTO', conta:o.conta||'', dataPag:o.pago?dataDeObs(o.obs):'', obs:o.obs||'', valorPlanilha:o.valor};
-      if(!ex) { R('faturas',rec); rel.faturas++; } else if(rec.status==='PAGO') Object.assign(ex,rec);
+      // duas ou mais linhas do mesmo cartão no mesmo mês (ex.: fatura de dezembro paga em janeiro + a de janeiro): somam
+      if(!ex) { R('faturas',rec); rel.faturas++; }
+      else { ex.valorPlanilha=Math.round(((+ex.valorPlanilha||0)+(+o.valor||0))*100)/100; ex.linhas=(ex.linhas||1)+1;
+        ex.status=(ex.status==='PAGO'&&rec.status==='PAGO')?'PAGO':'EM ABERTO'; if(!ex.conta) ex.conta=rec.conta; if(rec.dataPag&&rec.dataPag>(ex.dataPag||'')) ex.dataPag=rec.dataPag; if(rec.obs) ex.obs=[ex.obs,rec.obs].filter(Boolean).join(' · '); }
       return;
     }
     addLanc(o, o.data); rel.lanc++;
@@ -4354,7 +4357,7 @@ async function importarArquivo(f){
     const buf=await f.arrayBuffer(); const wb=XLSX.read(buf,{type:'array',cellDates:true});
     const {D, rel}=importarPlanilha(wb, f.name);
     modal(`<button class="btn small x" data-close>✕</button><h2>Importar ${esc(f.name)}</h2>
-      <div class="kv"><div>Entradas e saídas</div><div><b>${rel.lanc}</b>${rel.semData?` (+${rel.semData} sem data)`:''}</div><div>Compras de cartão</div><div><b>${rel.compras}</b></div><div>Faturas (status de pagamento)</div><div><b>${rel.faturas}</b></div><div>Cartões</div><div><b>${rel.cartoes}</b></div><div>Contas</div><div><b>${rel.contas}</b></div><div>Abastecimentos</div><div><b>${rel.carro}</b>${rel.carroAba?' (aba '+esc(rel.carroAba)+')':''}</div><div>Ano / saldo inicial</div><div>${rel.ano} · ${brl(rel.saldo)}</div></div>
+      <div class="kv"><div>Entradas e saídas</div><div><b>${rel.lanc}</b>${rel.semData?` (+${rel.semData} sem data)`:''}</div><div>Compras de cartão</div><div><b>${rel.compras}</b></div><div>Faturas (status de pagamento)</div><div><b>${rel.faturas}</b></div><div>Cartões</div><div><b>${rel.cartoes}</b></div><div>Contas</div><div><b>${rel.contas}</b></div><div>Abastecimentos</div><div>${rel.carro?`<b>${rel.carro}</b>${rel.carroAba?' (aba '+esc(rel.carroAba)+')':''}`:'nenhuma aba de carro nesta planilha — os abastecimentos que já estão no app <b>ficam como estão</b>'}</div><div>Ano / saldo inicial</div><div>${rel.ano} · ${brl(rel.saldo)}</div></div>
       ${rel.avisos.length?`<div class="warnbox">Conferência dos cartões (SAÍDA × abas de cartão):<br>${rel.avisos.slice(0,30).map(esc).join('<br>')}${rel.avisos.length>30?'<br>…':''}</div>`:'<div class="infobox">✔ Todas as faturas da SAÍDA batem com as compras dos cartões.</div>'}
       ${rel.carroAviso?`<div class="warnbox">⚠ ${esc(rel.carroAviso)}</div>`:''}<p class="note">Isso <b>substitui</b> tudo o que está no app${MODE.tipo==='google'?' (inclusive no Drive, para os dois)':''}. Antes, é baixado um backup automático dos dados atuais.</p>
       <div class="fbtns"><button class="btn primary" id="impOk">Importar e substituir</button><button class="btn" data-close>Cancelar</button></div>`, root=>{
@@ -4365,7 +4368,7 @@ async function importarArquivo(f){
         if(oc&&nc) Object.keys(oc).forEach(k=>{ if(!['id','u','by','del','saldoIni','anoBase','importadoDe','importadoEm'].includes(k)) nc[k]=oc[k]; });
         const keep=(k,campos)=>D[k].forEach(r=>{ const o=live(k).find(x=>nkey(x.nome)===nkey(r.nome)); if(o) campos.forEach(c=>{ if(o[c]!=null&&o[c]!==''&&(r[c]==null||r[c]==='')) r[c]=o[c]; }); });
         keep('cartoes',['logo','cor','bandeira','final','limite','venc','melhor']); keep('contas',['logo','cor']);
-        const old=DB; D.planos=(old.planos||[]).slice(); DB=D; COLS.forEach(k=>(old[k]||[]).forEach(r=>{ if(!D[k].some(x=>x.id===r.id)) D[k].push(Object.assign({},r,{del:1,u:nowMs()})); }));
+        const old=DB; D.planos=(old.planos||[]).slice(); if(!D.carro.length) D.carro=(old.carro||[]).slice(); DB=D; COLS.forEach(k=>(old[k]||[]).forEach(r=>{ if(!D[k].some(x=>x.id===r.id)) D[k].push(Object.assign({},r,{del:1,u:nowMs()})); }));
         ANO=rel.ano; lsSet('fin-ano',String(ANO)); closeModal(); await commit('Planilha importada ✓'); setTab('inicio'); };
     });
   }catch(e){ console.error(e); alert('Não consegui ler a planilha: '+(e.message||e)); }
@@ -5092,7 +5095,7 @@ TABS.splice(TABS.findIndex(t=>t.id==='orcamento'),0,{id:'planejar',g:'gastos',ic
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.5.2';
+const APP_VER='1.5.3';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
