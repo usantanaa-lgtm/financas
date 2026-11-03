@@ -564,6 +564,26 @@ body.no-app{background:#f4f7fb}
 .lg-brand:before{background:linear-gradient(90deg,#0f47ad 0%,rgba(19,78,181,.93) 24%,rgba(25,90,196,.6) 44%,rgba(30,100,205,.12) 66%,rgba(30,100,205,0) 100%)}
 .lg-sign{margin-top:40px}
 
+/* menu lateral: grupos recolhíveis */
+.side h5.grp{display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;padding:4px 0;border-radius:6px}
+.side h5.grp:hover{color:var(--ink)}
+.side h5.grp .chev{font-style:normal;font-size:10px;line-height:1;transition:transform .15s;margin-right:2px}
+.side h5.grp[aria-expanded="true"] .chev{transform:rotate(90deg)}
+.side .grp-b.fechado{display:none}
+body.side-collapsed .side h5.grp .chev{display:none}
+/* cartões com detalhe (▾) e filtro */
+.kpi.clk{cursor:pointer}
+.kpi.clk:hover{border-color:var(--accent)}
+.kpi.on{outline:2px solid var(--accent)}
+.kpi .l .kdd{border:0;background:none;color:var(--muted);font-size:12px;padding:0 4px;margin-left:3px;cursor:pointer;border-radius:4px;vertical-align:1px}
+.kpi .l .kdd:hover,.kpi .l .kdd:focus-visible{color:var(--accent);background:var(--surface-2)}
+.kddmenu{min-width:200px}
+.kddmenu .kdd-h{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:4px 8px 2px}
+.kddmenu .kdd-sep{border-top:1px solid var(--border);margin:6px 0}
+.kdd-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.kdd-chips .chip{border:1px solid var(--border);background:var(--surface);border-radius:999px;padding:4px 10px;font-size:12.5px;cursor:pointer;color:var(--ink-2)}
+.kdd-chips .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+
 </style>
 <script src="config.js"></script>
 </head>
@@ -1434,19 +1454,24 @@ const GROUPS=[['operacao','Operação'],['visao','Visão geral'],['gastos','Gast
 const TABS=[];
 let TAB='inicio';
 function renderSide(){
-  const s=$('#side'); const col=document.body.classList.contains('side-collapsed');
-  s.innerHTML=`<a data-tab="inicio" title="Início" ${TAB==='inicio'?'aria-current="page"':''}><span class="ic">🏠</span><span class="tx">Início</span></a>`+GROUPS.map(([g,gl])=>`<h5>${gl}</h5>`+TABS.filter(t=>t.g===g&&!(t.hide&&t.hide())).map(t=>`<a data-tab="${t.id}" title="${esc(t.l)}" ${TAB===t.id?'aria-current="page"':''}><span class="ic">${t.ic}</span><span class="tx">${esc(t.l)}</span></a>`).join('')).join('');
+  const s=$('#side'); const col=document.body.classList.contains('side-collapsed'); const ab=grpAbertos(); const tg=(TABS.find(t=>t.id===TAB)||{}).g;
+  s.innerHTML=`<a data-tab="inicio" title="Início" ${TAB==='inicio'?'aria-current="page"':''}><span class="ic">🏠</span><span class="tx">Início</span></a>`+GROUPS.map(([g,gl])=>{ const open=col||ab.has(g)||g===tg; return `<h5 class="grp" data-grp="${g}" role="button" tabindex="0" aria-expanded="${open}"><span>${gl}</span><i class="chev">▸</i></h5><div class="grp-b${open?'':' fechado'}">`+TABS.filter(t=>t.g===g&&!(t.hide&&t.hide())).map(t=>`<a data-tab="${t.id}" title="${esc(t.l)}" ${TAB===t.id?'aria-current="page"':''}><span class="ic">${t.ic}</span><span class="tx">${esc(t.l)}</span></a>`).join('')+'</div>'; }).join('');
   if(typeof sairDoSistema==='function' && !document.body.classList.contains('no-app')){
     s.insertAdjacentHTML('beforeend',`<h5>Conta</h5>${(typeof temSenha==='function'&&temSenha())?'<a data-act="lock" title="Bloquear"><span class="ic">🔒</span><span class="tx">Bloquear o app</span></a>':''}<a data-act="sair" title="Sair"><span class="ic">⏻</span><span class="tx">Sair do sistema</span></a><div class="side-ver">Versão ${typeof APP_VER!=='undefined'?APP_VER:''}</div>`);
     s.querySelectorAll('[data-act]').forEach(a=>a.onclick=()=>{ document.body.classList.remove('menu-open'); if(a.dataset.act==='sair') sairDoSistema(); else bloquear(); }); }
   s.querySelectorAll('[data-tab]').forEach(a=>a.onclick=()=>{ document.body.classList.remove('menu-open'); setTab(a.dataset.tab); });
+  s.querySelectorAll('h5.grp').forEach(h=>{ const tg=()=>{ if(document.body.classList.contains('side-collapsed')) return; const g=h.dataset.grp, b=h.nextElementSibling, on=b.classList.toggle('fechado'); h.setAttribute('aria-expanded',String(!on)); const set=grpAbertos(); if(on) set.delete(g); else set.add(g); lsSet('fin-grp',JSON.stringify([...set])); };
+    h.onclick=tg; h.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); tg(); } }; });
 }
+/* grupos do menu abertos (o resto fica recolhido; o grupo da aba atual sempre abre) */
+function grpAbertos(){ try{ return new Set(JSON.parse(lsGet('fin-grp','[]'))||[]); }catch(e){ return new Set(); } }
 function toggleSide(force){ const on=force!=null?force:!document.body.classList.contains('side-collapsed'); document.body.classList.toggle('side-collapsed',on); lsSet('fin-side',on?'1':'0'); renderSide(); }
 function setTab(t, silent){
   if(!TABS.some(x=>x.id===t)) t='inicio';
   TAB=t; lsSet('fin-tab',t);
   if(!silent && history.replaceState) history.replaceState(null,'','#'+t);
   $$('#side [data-tab]').forEach(a=>{ if(a.dataset.tab===t) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
+  { const g=(TABS.find(x=>x.id===t)||{}).g; const h=g&&document.querySelector('#side h5.grp[data-grp="'+g+'"]'); if(h&&h.getAttribute('aria-expanded')==='false') renderSide(); }
   window.scrollTo(0,0); renderView();
 }
 function renderView(){
@@ -2431,21 +2456,29 @@ function carroItens(){
 }
 function carroModo(temAba){ const m=(STATE.app&&typeof cfg==='function')?(cfg().carroComb||'auto'):'auto'; return m==='auto'?(temAba?'aba':'lanc'):m;
 }
+/* filtros que valem para o carro: período (de/até), mês e busca */
+function carroFiltroAtivo(){ return !!(F.de||F.ate||(F.sel.mesN&&F.sel.mesN.size)||F.q); }
+function carroOk(data, mes, txt){ if((F.de||F.ate)&&!inPeriod(data)) return false; const s=F.sel.mesN; if(s&&s.size&&!s.has(cap1(MESES_LONG[mes-1])+(data.getFullYear()!==STATE.ano?' '+data.getFullYear():''))) return false; if(F.q&&!norm(txt).includes(norm(F.q))) return false; return true; }
 function renderCarro(v, rows){
-  const I=carroItens(); const C=I.filter(x=>!x.dup);
+  const Iall=carroItens(); const I=Iall.filter(x=>carroOk(x.data,x.mes,[x.desc,x.cat,x.fonte].join(' ')));
+  I.modo=Iall.modo; I.combAba=sum(I.filter(x=>x.fonte==='Aba Carro'),x=>x.valor); I.combLanc=sum(I.filter(x=>x.fonte!=='Aba Carro'&&x.cat==='COMBUSTÍVEL'&&(!x.dup||/aba Carro/.test(x.dup))),x=>x.valor);
+  const filt=carroFiltroAtivo(); const C=I.filter(x=>!x.dup);
   const tot=sum(C,x=>x.valor), comb=sum(C.filter(x=>x.cat==='COMBUSTÍVEL'),x=>x.valor), lav=sum(C.filter(x=>/LAVAGEM/.test(x.cat)),x=>x.valor);
-  const A=STATE.carro.filter(a=>a.data.getFullYear()===STATE.ano); const valor=sum(A,c=>c.valor), litros=sum(A,c=>c.litros); const hods=A.map(c=>c.hod).filter(Boolean); const km=hods.length>1?Math.max(...hods)-Math.min(...hods):0;
-  const litC=sum(A.slice(1),c=>c.litros), valC=sum(A.slice(1),c=>c.valor);
+  // km de cada abastecimento = hodômetro − o do abastecimento anterior (mesmo que o anterior esteja fora do filtro)
+  const Aano=STATE.carro.filter(a=>a.data.getFullYear()===STATE.ano).slice().sort((a,b)=>a.data-b.data||a.hod-b.hod);
+  const Afull=STATE.carro.slice().sort((a,b)=>a.data-b.data||a.hod-b.hod); Aano.forEach(a=>{ const i=Afull.indexOf(a); const p=i>0?Afull[i-1]:null; a.kmD=(p&&p.hod&&a.hod&&a.hod>p.hod)?a.hod-p.hod:0; });
+  const A=Aano.filter(a=>carroOk(a.data,a.data.getMonth()+1,[a.comb,a.posto,a.rede,'abastecimento combustível'].join(' ')));
+  const km=sum(A,c=>c.kmD); const comKm=A.filter(c=>c.kmD); const litC=sum(comKm,c=>c.litros), valC=sum(comKm,c=>c.valor);
   const fontes=['SAÍDA',...STATE.cartoes.map(c=>'Cartão '+c.nome),'Aba Carro'].filter(f=>C.some(x=>x.fonte===f));
   const cats=agg(C,x=>x.cat,x=>x.valor);
   const mesesCom=uniq(C.map(x=>x.mes)).length;
   v.innerHTML = pageHead('Carro','Junta tudo que é do carro em três lugares: <b>SAÍDA</b> (plano/categoria de automóvel e também textos da DESCRIÇÃO e da OBS), <b>anotações das abas de cartão</b> e a <b>aba Carro</b>. Quando o mesmo gasto aparece em mais de um lugar (mesmo valor, até 5 dias de diferença), conta uma vez só.', `<div style="display:flex;gap:6px">${STATE.app?'<button class="btn small primary" id="caNovo">⛽ + Abastecimento</button>':''}${expBtn('car')}</div>`)
   + `<div class="kpis">
-      ${kpi('Custo do carro no ano',brl(tot),C.length+' item(ns) · '+fontes.length+' fonte(s)','red')}
+      ${kpi(filt?'Custo do carro no período':'Custo do carro no ano',brl(tot),C.length+' item(ns) · '+fontes.length+' fonte(s)','red')}
       ${kpi('Custo médio por mês',brl(mesesCom?tot/mesesCom:0),mesesCom+' mês(es) com gasto','orange')}
       ${kpi('Combustível',brl(comb),pct(tot?comb/tot:null,0)+' do custo','amber')}
       ${kpi('Lavagem',brl(lav),'','aqua')}
-      ${kpi('Km rodados',km?fmtInt.format(km)+' km':'—','Hodômetro da aba Carro','blue')}
+      ${kpi('Km rodados',km?fmtInt.format(km)+' km':'—',filt?'No período filtrado (hodômetro da aba Carro)':'Hodômetro da aba Carro','blue')}
       ${kpi('Consumo médio',litC?fmt1.format(km/litC)+' km/l':'—',km?'Custo/km (combustível): '+brl(valC/km):'Preencha hodômetro e litros na aba Carro','green')}
       ${kpi('Combustível: de onde vem',I.modo==='aba'?'Aba Carro':'Lançamentos',`Aba Carro ${brl0(I.combAba)} · lançamentos ${brl0(I.combLanc)}${STATE.app?' · toque para trocar':''}`,'purple',STATE.app?'id="caModo" style="cursor:pointer"':'')}
       ${kpi('Repetidos ignorados',I.filter(x=>x.dup).length,brl(sum(I.filter(x=>x.dup),x=>x.valor))+' que já estavam em outra fonte','gray')}
@@ -2463,7 +2496,7 @@ function renderCarro(v, rows){
 
   const AP=A.filter(c=>c.preco);
   line('chCaP',AP.map(c=>fmtDateS(c.data)),[lineDS('R$/litro',AP.map(c=>c.preco),series(4))],{fmt:x=>'R$ '+x.toFixed(2).replace('.',','),tipFmt:x=>brl(x),lblFmt:x=>x.toFixed(2).replace('.',','),zero:false,empty:'A aba Carro não tem o valor do litro preenchido.'});
-  const kmM=Array(12).fill(0); for(let i=1;i<A.length;i++){ if(A[i].hod&&A[i-1].hod) kmM[A[i].data.getMonth()]+=A[i].hod-A[i-1].hod; }
+  const kmM=Array(12).fill(0); A.forEach(a=>{ kmM[a.data.getMonth()]+=a.kmD||0; });
   vbar('chCaK',MESES_C,[barDS('Km',kmM,series(1))],{fmt:x=>fmtInt.format(x)+' km',tipFmt:x=>fmtInt.format(x)+' km',empty:'Sem hodômetro na aba Carro.'});
   table('tCa',[{h:'Data',v:x=>x.data,f:fmtDateS},{h:'Fonte',v:x=>x.fonte},{h:'Linha',v:x=>x.linha},{h:'Descrição / anotação',v:x=>x.desc,cls:'wrap'},{h:'Tipo',v:x=>x.cat},{h:'Valor',v:x=>x.valor,num:1,f:brl},{h:'Situação',v:x=>x.dup||'',html:x=>x.dup?`<span class="pill"><span class="dot" style="background:var(--axis)"></span>ignorado: ${esc(x.dup)}</span>`:x.pago?'<span class="pill"><span class="dot" style="background:var(--good)"></span>contado</span>':'<span class="pill"><span class="dot" style="background:var(--warn)"></span>em aberto</span>'}],I.slice().reverse(),{empty:'Nenhum gasto de carro encontrado na SAÍDA, nos cartões ou na aba Carro.',onClick:x=>{ if(x.fonte==='SAÍDA') openDetail(x.ref); },foot:(c,i)=>i===0?'Total contado':c.h==='Valor'?brl(tot):''});
   bindExports({car:()=>exportSheets('carro',[['Gastos do carro',I.map(x=>({Data:x.data,Fonte:x.fonte,Linha:x.linha,Descrição:x.desc,Tipo:x.cat,Valor:x.valor,Situação:x.dup||'contado'}))]])});
@@ -5091,11 +5124,88 @@ function plAlertas(){ const hoje=new Date(); const ano=hoje.getFullYear(); const
 TABS.splice(TABS.findIndex(t=>t.id==='orcamento'),0,{id:'planejar',g:'gastos',ic:'🗓️',l:'Planejamento anual',d:'Montar o orçamento do ano a dois: receitas, despesas por categoria, lazer e quanto guardar — e acompanhar.',render:renderPlanejar,noF:1});
 
 /* =====================================================================
+   CARTÕES (KPIs) COM DETALHE E FILTRO — mesma ideia do GCI
+   - ▾ ao lado do título: "Detalhar por" (categoria, subcategoria, conta…) → janela com o total
+     quebrado; tocar numa linha abre a lista de lançamentos.
+   - Tocar no cartão (nas abas com barra de filtros): filtra a tela por ele; tocar de novo tira.
+   ===================================================================== */
+const KHOJE=()=>{ const d=new Date(); d.setHours(0,0,0,0); return d; };
+const kDias=(o,n)=>{ const h=KHOJE(); const lim=new Date(h); lim.setDate(lim.getDate()+n); return o.data>=h && o.data<=lim; };
+const kMesDe=l=>{ const i=MESES_LONG.findIndex(m=>new RegExp('\\b'+m+'\\b','i').test(l)); return i>=0?i+1:null; };
+/* nome do cartão (ou começo do nome) → o que entra nele */
+const KDEFS=[
+  [/^(contas )?atrasadas$/i, {p:o=>o.atrasado, vl:'Em atraso'}],
+  [/^(total de )?despesas$/i, {p:o=>o.t==='D'}],
+  [/^(total de )?receitas$/i, {p:o=>o.t==='R'}],
+  [/^(total )?a pagar em aberto$/i, {p:o=>o.t==='D'&&!o.pago, bruto:1}],
+  [/^(total )?a receber em aberto$/i, {p:o=>o.t==='R'&&!o.pago, bruto:1}],
+  [/^já pago/i, {p:o=>o.t==='D'&&o.pago, bruto:1}],
+  [/^já recebido/i, {p:o=>o.t==='R'&&o.pago, bruto:1}],
+  [/^vencem hoje$/i, {p:o=>!o.pago&&o.data&&o.data.getTime()===KHOJE().getTime(), bruto:1}],
+  [/^(vencem em|próximos) 7 dias$/i, {p:o=>!o.pago&&o.data&&kDias(o,7), bruto:1}],
+  [/^próximos 30 dias$/i, {p:o=>!o.pago&&o.data&&kDias(o,30), bruto:1}],
+  [/^pagos sem conta$/i, {p:o=>o.pago&&!o.conta, bruto:1}],
+  [/^falta pagar em /i, {mes:1, p:(o,m)=>o.t==='D'&&!o.pago&&o.mes===m&&o.ano===STATE.ano, bruto:1}],
+  [/^resultado de /i, {mes:1, p:(o,m)=>o.mes===m&&o.ano===STATE.ano, nf:1, saldo:1}],
+];
+const KDIMS=[
+  ['cat','Categoria',o=>o.cat||'(sem categoria)'],['sub','Subcategoria',o=>o.sub||'(sem subcategoria)'],['plano','Plano de contas',o=>o.plano],
+  ['ref','Referente',o=>o.ref],['conta','Conta',o=>o.conta||'(sem conta)'],['forma','Forma de pagamento',o=>o.forma],
+  ['cartao','Cartão',o=>o.src&&o.src.k==='fatura'?((cartaoById(o.src.cartao)||{}).nome||'(cartão)'):'(fora do cartão)'],
+  ['mes','Mês',o=>cap1(MESES_LONG[o.mes-1])+(o.ano!==STATE.ano?' '+o.ano:'')],['sit','Situação',o=>o.sit]
+];
+function kLbl(el){ const l=el.querySelector('.l'); if(!l) return ''; const t=[...l.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join('').trim(); return t; }
+function kDef(name){ const d=KDEFS.find(([re])=>re.test(name)); if(!d) return null; const def=Object.assign({},d[1]); def.m=def.mes?kMesDe(name):null; if(def.mes&&!def.m) return null; return def; }
+const kVal=(def,o)=>def.bruto?o.valor:val(o);
+function kLista(def){ return filtered({noExtra:true}).filter(o=>def.p(o,def.m)); }
+function decorateKpis(root){
+  if(!root||!STATE) return; const tab=TABS.find(t=>t.id===TAB)||{}; const podeFiltrar=!tab.noF&&TAB!=='inicio';
+  root.querySelectorAll('.kpi').forEach(el=>{
+    const l=el.querySelector('.l'); if(!l||l.querySelector('.kdd')) return; const name=kLbl(el); const def=kDef(name); if(!def) return;
+    const b=document.createElement('button'); b.type='button'; b.className='kdd'; b.textContent='▾'; b.title='Detalhar este indicador'; b.setAttribute('aria-haspopup','menu');
+    b.onclick=e=>{ e.stopPropagation(); e.preventDefault(); kMenu(b,name,def); }; l.appendChild(b);
+    // cartões que já têm ação própria (abrir aba, lista) continuam como estão
+    if(podeFiltrar && !def.nf && !el.classList.contains('clk')){ const fl='Cartão: '+name, on=F.extra&&F.extra.label===fl;
+      el.classList.add('clk','kf'); el.classList.toggle('on',on); el.setAttribute('role','button'); el.tabIndex=0;
+      el.title=on?'Filtro ativo — toque para tirar':'Toque para filtrar a tela por este cartão';
+      const go=()=>setExtra(fl,o=>def.p(o,def.m));
+      el.addEventListener('click',e=>{ if(e.target.closest('.kdd')) return; go(); });
+      el.addEventListener('keydown',e=>{ if((e.key==='Enter'||e.key===' ')&&e.target===el){ e.preventDefault(); go(); } }); }
+  });
+}
+function kMenu(anchor, name, def){
+  const old=document.getElementById('kddMenu'); if(old){ old.remove(); if(old.dataset.for===name) return; }
+  const m=document.createElement('div'); m.id='kddMenu'; m.className='thmenu kddmenu'; m.dataset.for=name; m.setAttribute('role','menu');
+  m.innerHTML='<div class="kdd-h">Detalhar por</div>'+KDIMS.map(([k,lbl])=>`<button type="button" role="menuitem" data-dim="${k}">${lbl}</button>`).join('')+'<div class="kdd-sep"></div><button type="button" role="menuitem" data-dim="_lista">📋 Ver os lançamentos</button>';
+  document.body.appendChild(m);
+  const r=anchor.getBoundingClientRect(); m.style.top=Math.max(8,Math.min(r.bottom+6,innerHeight-m.offsetHeight-8))+'px'; m.style.left=Math.max(8,Math.min(r.left,innerWidth-m.offsetWidth-8))+'px';
+  m.addEventListener('click',ev=>ev.stopPropagation());
+  m.querySelectorAll('[data-dim]').forEach(x=>x.onclick=()=>{ m.remove(); if(x.dataset.dim==='_lista') showList(name,kLista(def)); else kDetalhe(name,def,x.dataset.dim); });
+  setTimeout(()=>{ const close=()=>{ const mm=document.getElementById('kddMenu'); if(mm) mm.remove(); document.removeEventListener('keydown',esc_); };
+    const esc_=e=>{ if(e.key==='Escape') close(); }; document.addEventListener('click',close,{once:true}); document.addEventListener('keydown',esc_); },0);
+}
+function kDetalhe(name, def, dim){
+  const list=kLista(def); const d=KDIMS.find(x=>x[0]===dim)||KDIMS[0];
+  const sv=o=>def.saldo?(o.t==='D'?-kVal(def,o):kVal(def,o)):kVal(def,o); const tot=sum(list,sv);
+  const g=new Map(); list.forEach(o=>{ const k=String(d[2](o)||'').trim()||'Não informado'; if(!g.has(k)) g.set(k,[]); g.get(k).push(o); });
+  const data=[...g].map(([k,a])=>{ const v=sum(a,sv); return {k,n:a.length,v,p:tot?v/tot:null,list:a}; });
+  modal(`<button class="btn small x" data-close>✕</button><h2>${esc(name)} — por ${esc(d[1].toLowerCase())}</h2>
+    <p class="note">${fmtInt.format(list.length)} lançamento(s) · ${brl(tot)}. Respeita os filtros da tela. Toque numa linha para ver os lançamentos.</p>
+    <div class="kdd-chips">${KDIMS.map(([k,l])=>`<button type="button" class="chip" data-kd="${k}" aria-pressed="${k===d[0]}">${l}</button>`).join('')}</div>
+    <div class="twrap short" style="margin-top:8px"><table id="tKdd"></table></div>`,
+  ()=>{ document.querySelectorAll('[data-kd]').forEach(c=>c.onclick=()=>kDetalhe(name,def,c.dataset.kd));
+    table('tKdd',[{h:d[1],v:x=>x.k,cls:'name'},{h:'Lançamentos',v:x=>x.n,num:1,f:x=>fmtInt.format(x)},{h:'Valor',v:x=>x.v,num:1,f:brl},{h:'%',v:x=>x.p,num:1,f:x=>x==null?'—':pct(x)}],
+      data,{sort:2,dir:-1,onClick:x=>{ closeModal(); showList(`${name} · ${x.k}`,x.list); }}); });
+}
+const _renderViewKdd=renderView;
+renderView=function(){ _renderViewKdd(); try{ decorateKpis($('#view')); }catch(e){ console.warn('kpi',e); } };
+
+/* =====================================================================
    INÍCIO DO APP: tela de entrada, login, abrir dados e navegação do celular
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.5.3';
+const APP_VER='1.5.4';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
