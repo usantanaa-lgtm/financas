@@ -2409,10 +2409,12 @@ function carroItens(){
   const near=(a,b)=>Math.abs(a.valor-b.valor)<=0.05 && Math.abs(a.data-b.data)<=5*DAY;
   const S=out.filter(x=>x.fonte==='SAÍDA'), K=out.filter(x=>x.fonte.startsWith('Cartão')), A=out.filter(x=>x.fonte==='Aba Carro');
   K.forEach(k=>{ const s=S.find(s=>!s.usado&&near(s,k)); if(s){ k.dup='já está em '+s.linha; s.usado=1; } });
-  A.forEach(a=>{ const s=S.concat(K.filter(k=>!k.dup)).find(s=>!s.usadoA&&near(s,a)); if(s){ a.dup='já está em '+s.linha; s.usadoA=1; } });
+  A.forEach(a=>{ const s=S.concat(K.filter(k=>!k.dup)).find(s=>!s.usadoA&&near(s,a)); if(s){ a.dup='já está em '+s.linha; a.dupDe=s; s.usadoA=1; } });
   // combustível: conta por UMA fonte só (aba Carro OU lançamentos), para não somar o mesmo abastecimento duas vezes
   const modo=carroModo(A.length);
-  if(modo==='aba') S.concat(K).forEach(x=>{ if(!x.dup && x.cat==='COMBUSTÍVEL') x.dup='combustível contado pela aba Carro'; });
+  if(modo==='aba'){ S.concat(K).forEach(x=>{ if(!x.dup && x.cat==='COMBUSTÍVEL') x.dup='combustível contado pela aba Carro'; });
+    // o abastecimento casado com um lançamento de combustível volta a contar (senão os dois ficavam de fora)
+    A.forEach(a=>{ if(a.dupDe && a.dupDe.cat==='COMBUSTÍVEL'){ delete a.dup; a.dupDe.dup='combustível contado pela aba Carro'; } }); }
   else A.forEach(a=>{ if(!a.dup) a.dup='abastecimento usado só para km/consumo'; });
   out.combLanc=sum(S.concat(K).filter(x=>x.cat==='COMBUSTÍVEL'&&(!x.dup||/aba Carro/.test(x.dup))),x=>x.valor); out.combAba=sum(A,x=>x.valor); out.modo=modo;
   return out.sort((a,b)=>a.data-b.data);
@@ -4709,12 +4711,17 @@ function calculadora(){
 
 /* ---------- últimos lançamentos (Início) ---------- */
 function ultimosHTML(){
-  const L=live('lanc').map(l=>({u:l.u,k:'lanc',id:l.id,d:l.desc||l.sub||l.plano||'(sem descrição)',v:+l.valor||0,t:l.t,by:l.by,data:l.data,info:l.t==='R'?'Entrada':'Saída'}))
+  let L=live('lanc').map(l=>({u:l.u,k:'lanc',id:l.id,d:l.desc||l.sub||l.plano||'(sem descrição)',v:+l.valor||0,t:l.t,by:l.by,data:l.data,info:l.t==='R'?'Entrada':'Saída'}))
     .concat(live('compras').map(p=>({u:p.u,k:'compras',id:p.id,d:p.desc||'(compra)',v:+p.valor||0,t:'C',by:p.by,data:p.data,info:'💳 '+((cartaoById(p.cartao)||{}).nome||'Cartão')+(p.n>1?' · '+p.n+'x':'')})))
-    .filter(x=>x.u).sort((a,b)=>b.u-a.u).slice(0,8);
+    .filter(x=>x.u&&!/^Ajuste da planilha/.test(x.d));
+  // o que veio da importação da planilha tem todos o mesmo "momento": entre eles vale a data do lançamento (até hoje)
+  const imp=+cfg().importadoEm||0, hj=hojeISO();
+  L.forEach(x=>{ x.imp=imp&&x.u<=imp&&imp-x.u<10*60000; x.k2=x.imp?imp:x.u; x.fut=x.imp&&(x.data||'')>hj; if(x.imp) x.info+=' · da planilha'; });
+  L.sort((a,b)=>(b.k2-a.k2)||(a.fut-b.fut)||(b.data||'').localeCompare(a.data||''));
+  L.splice(8);
   if(!L.length) return '';
   setTimeout(()=>$$('[data-ult]').forEach(r=>r.onclick=()=>{ const [k,id]=r.dataset.ult.split('|'); if(k==='lanc') editarLanc(id); else editarCompra(id); }),0);
-  return `<div class="card" style="margin:12px 0"><h3>Últimos lançamentos</h3><div class="sub">Os 8 mais recentes, de quem lançou · toque para abrir</div><div class="twrap"><table><tbody>${L.map(x=>`<tr class="clk" data-ult="${x.k}|${x.id}"><td>${fmtDateS(parseISO(x.data))}</td><td><b>${esc(x.d)}</b><br><span class="note">${esc(x.info)}${x.by?' · por '+esc(x.by):''}</span></td><td class="num ${x.t==='R'?'st-good':''}">${brl(x.v)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  return `<div class="card" style="margin:12px 0"><h3>Últimos lançamentos</h3><div class="sub">Os 8 mais recentes, de quem lançou · toque para abrir</div><div class="twrap"><table><tbody>${L.map(x=>`<tr class="clk" data-ult="${x.k}|${x.id}"><td>${fmtDateS(parseISO(x.data))}</td><td><b>${esc(x.d)}</b><br><span class="note">${esc(x.info)}${x.by&&!x.imp?' · por '+esc(x.by):''}</span></td><td class="num ${x.t==='R'?'st-good':''}">${brl(x.v)}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
 /* ---------- exportar: escolher abas, ano e formato ---------- */
@@ -5062,7 +5069,7 @@ TABS.splice(TABS.findIndex(t=>t.id==='orcamento'),0,{id:'planejar',g:'gastos',ic
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.4.7';
+const APP_VER='1.4.9';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
