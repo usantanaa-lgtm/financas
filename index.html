@@ -3796,11 +3796,15 @@ function importarPlanilha(wb, nomeArq){
     });
   });
   // referente da SAÍDA -> cartão (para reconhecer as linhas de fatura)
-  const refCard={}; D.cartoes.forEach(c=>{ if(c.ref && c.aba) refCard[nkey(c.ref)]=c; });
+  // casa pelo "Referente" do cadastro e também pelo nome do cartão / da aba (cartões novos que não estão no CADASTRO CARTÕES)
+  const refCard={}; D.cartoes.forEach(c=>{ if(!c.aba) return; [c.ref,c.aba,c.nome].forEach(x=>{ const k=nkey(x); if(k&&!refCard[k]) refCard[k]=c; }); });
+  const ehLinhaCartao = o => /cartao|credito|fatura/.test(norm([o.plano,o.forma,o.desc,o.ref].join(' ')));
+  const acharCartao = o => { if(o.t!=='D') return null; const r=nkey(o.ref); if(refCard[r]) return refCard[r];
+    if(!ehLinhaCartao(o)) return null; const txt=nkey([o.ref,o.desc,o.descD].join(' ')); const ks=Object.keys(refCard).filter(k=>k.length>=4&&txt.includes(k)).sort((a,b)=>b.length-a.length); return ks.length?refCard[ks[0]]:null; };
   const dataDeObs = s => { const m=String(s||'').match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if(!m) return ''; let y=+m[3]; if(y<100) y+=2000; return y+'-'+String(+m[2]).padStart(2,'0')+'-'+String(+m[1]).padStart(2,'0'); };
   const addLanc = (o, data) => { R('lanc',{t:o.t, data:data?isoLocal(data):'', plano:o.plano, ref:o.ref, desc:o.desc, descD:o.descD||'', cat:o.cat, sub:o.sub, tipo:o.tipo, forma:o.forma, status:o.status, valor:o.valor, obs:o.obs, conta:o.conta||''}); };
   S.lanc.forEach(o=>{
-    const card = o.t==='D' && refCard[nkey(o.ref)];
+    const card = acharCartao(o);
     if(card){
       const ym=ymOf(o.data), id=card.id+'|'+ym; const ex=D.faturas.find(f=>f.id===id);
       const rec={id, cartao:card.id, ym, status:o.pago?'PAGO':'EM ABERTO', conta:o.conta||'', dataPag:o.pago?dataDeObs(o.obs):'', obs:o.obs||'', valorPlanilha:o.valor};
@@ -3832,6 +3836,9 @@ function importarPlanilha(wb, nomeArq){
   D.faturas.forEach(f=>{ const tot=Math.round(sum(D.compras.filter(p=>p.cartao===f.cartao),p=>(p.parc||{})[f.ym]||0)*100)/100;
     if(f.valorPlanilha!=null && Math.abs(tot-f.valorPlanilha)>0.05){ const c=D.cartoes.find(x=>x.id===f.cartao); rel.avisos.push(`${c?c.nome:''} ${ymLabel(f.ym)}: na SAÍDA ${brl(f.valorPlanilha)}, nas compras do cartão ${brl(tot)} → criei um “Ajuste da planilha” de ${brl(f.valorPlanilha-tot)}`);
       const dif=Math.round((f.valorPlanilha-tot)*100)/100; R('compras',{cartao:f.cartao, data:f.ym+'-01', desc:'Ajuste da planilha (diferença da SAÍDA)', ref:'Ajuste', forma:'À Vista', valor:dif, n:1, parc:{[f.ym]:dif}, cat:'', sub:'', obs:'Criado na importação para o total do cartão bater com a SAÍDA. Apague se lançar as compras que faltam.'}); rel.compras++; } });
+  const hojeYM=ymOf(new Date());
+  D.cartoes.forEach(c=>{ const meses=new Set(); D.compras.filter(p=>p.cartao===c.id).forEach(p=>Object.entries(p.parc||{}).forEach(([ym,v])=>{ if(v&&ym<hojeYM&&ym.startsWith(String(S.ano))) meses.add(ym); }));
+    [...meses].sort().forEach(ym=>{ if(!D.faturas.some(f=>f.cartao===c.id&&f.ym===ym)) rel.avisos.push(`${c.nome} ${ymLabel(ym)}: tem compras no cartão, mas não achei a linha da fatura na SAÍDA → no app a fatura fica “em aberto”. Se já foi paga, dê baixa em Faturas.`); }); });
   rel.ano=S.ano; rel.saldo=S.saldoInicial;
   return {D, rel};
 }
@@ -4332,7 +4339,7 @@ async function importarArquivo(f){
     const {D, rel}=importarPlanilha(wb, f.name);
     modal(`<button class="btn small x" data-close>✕</button><h2>Importar ${esc(f.name)}</h2>
       <div class="kv"><div>Entradas e saídas</div><div><b>${rel.lanc}</b>${rel.semData?` (+${rel.semData} sem data)`:''}</div><div>Compras de cartão</div><div><b>${rel.compras}</b></div><div>Faturas (status de pagamento)</div><div><b>${rel.faturas}</b></div><div>Cartões</div><div><b>${rel.cartoes}</b></div><div>Contas</div><div><b>${rel.contas}</b></div><div>Ano / saldo inicial</div><div>${rel.ano} · ${brl(rel.saldo)}</div></div>
-      ${rel.avisos.length?`<div class="warnbox">Faturas em que o valor da SAÍDA não bate com a soma das compras do cartão. Para o total ficar igual à planilha, o app cria uma compra “Ajuste da planilha” com a diferença:<br>${rel.avisos.slice(0,12).map(esc).join('<br>')}${rel.avisos.length>12?'<br>…':''}</div>`:'<div class="infobox">✔ Todas as faturas da SAÍDA batem com as compras dos cartões.</div>'}
+      ${rel.avisos.length?`<div class="warnbox">Conferência dos cartões (SAÍDA × abas de cartão):<br>${rel.avisos.slice(0,30).map(esc).join('<br>')}${rel.avisos.length>30?'<br>…':''}</div>`:'<div class="infobox">✔ Todas as faturas da SAÍDA batem com as compras dos cartões.</div>'}
       <p class="note">Isso <b>substitui</b> tudo o que está no app${MODE.tipo==='google'?' (inclusive no Drive, para os dois)':''}. Antes, é baixado um backup automático dos dados atuais.</p>
       <div class="fbtns"><button class="btn primary" id="impOk">Importar e substituir</button><button class="btn" data-close>Cancelar</button></div>`, root=>{
       $('#impOk').onclick=async()=>{ if(DB && (DB.lanc.length||DB.compras.length)) baixar(new Blob([JSON.stringify(DB)],{type:'application/json'}),'financas-antes-da-importacao-'+hojeISO()+'.json');
@@ -5069,7 +5076,7 @@ TABS.splice(TABS.findIndex(t=>t.id==='orcamento'),0,{id:'planejar',g:'gastos',ic
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.4.9';
+const APP_VER='1.5.0';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
