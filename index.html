@@ -760,6 +760,40 @@ body.ocultar .lce[data-c="valor"]{filter:blur(6px)}
 
 .lce-t select.lce{min-width:118px}
 .lce-t select.lce[data-c="conta"]{min-width:140px}
+
+/* Lançar em janela */
+#lmWrap:empty{display:none}
+.lm-bg{position:fixed;inset:0;background:rgba(14,26,43,.45);z-index:70;animation:lmFade .15s}
+.lm-box{position:fixed;z-index:71;left:50%;top:5vh;transform:translateX(-50%);width:min(760px,calc(100vw - 32px));max-height:90vh;display:flex;flex-direction:column;background:var(--page);border-radius:20px;box-shadow:0 24px 60px rgba(14,26,43,.35);overflow:hidden;animation:lmUp .18s ease-out}
+.lm-head{display:flex;align-items:center;gap:8px;padding:14px 16px 12px 20px;background:var(--surface);border-bottom:1px solid var(--border)}
+.lm-head h2{font-size:17px;font-weight:700}
+.lm-grab{display:none}
+.lm-body{overflow:auto;padding:14px 16px 18px;-webkit-overflow-scrolling:touch}
+.lm-body .grid{grid-template-columns:1fr!important;gap:12px}
+.lm-body .grid>.card{grid-column:1/-1!important;margin:0}
+.lm-body #prev:empty{display:none}
+.lm-body .frm .fbtns{position:sticky;bottom:-18px;background:var(--surface);padding:12px 0 4px;margin-bottom:-4px;z-index:2}
+body.lm-aberto{overflow:hidden}
+@keyframes lmFade{from{opacity:0}}
+@keyframes lmUp{from{opacity:0;transform:translate(-50%,16px)}}
+@media (max-width:760px){
+  .lm-box{left:0;right:0;bottom:0;top:auto;transform:none;width:100%;max-height:94dvh;border-radius:22px 22px 0 0;animation:lmSheet .22s ease-out}
+  .lm-head{flex-wrap:wrap;padding:8px 12px 10px 16px}
+  .lm-grab{display:block;width:42px;height:5px;border-radius:9px;background:var(--surface-3);margin:0 auto 6px;flex-basis:100%;max-width:42px}
+  .lm-head #lmFull{display:none}
+  .lm-body{padding:12px 12px calc(18px + env(safe-area-inset-bottom))}
+  .lm-body .fgrid{grid-template-columns:1fr 1fr}
+}
+@keyframes lmSheet{from{transform:translateY(40px);opacity:.4}}
+@media (max-width:760px){
+  .lm-head{position:relative;padding-top:16px}
+  .lm-grab{position:absolute;top:7px;left:50%;transform:translateX(-50%);margin:0}
+  .lm-head .lm-lbl{display:none}.lm-head #bCalc{font-size:17px;padding:5px 9px}
+  .ff:has([data-seg=formaC]){grid-column:1/-1}
+  .lm-body .frm .fbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .lm-body .frm .fbtns #bSalvar{grid-column:1/-1;width:100%;justify-content:center}
+  .lm-body .frm .fbtns .btn{justify-content:center}
+}
 </style>
 <script src="config.js"></script>
 </head>
@@ -5394,7 +5428,7 @@ renderView=function(){ _renderViewKdd(); try{ decorateKpis($('#view')); }catch(e
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.6.1';
+const APP_VER='1.6.2';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
@@ -5627,7 +5661,7 @@ function renderBottomNav(){
   const el=$('#bnav'); if(!el||!AREAS) return; const cur=areaDe(TAB);
   const it=[['inicio','Início'],['lanc','Lançamentos'],['+',''],['planejar','Planejar'],['mais','Mais']];
   el.innerHTML=it.map(([k,l])=>k==='+'?`<button data-bn="+" aria-label="Lançar"><span class="bn-fab">＋</span></button>`:`<button data-bn="${k}" aria-current="${k==='mais'?!['inicio','lanc','planejar'].includes(cur):cur===k}"><span class="bn-ic">${railIco(k)}</span><span class="bn-l">${l}</span>${k==='lanc'&&live('pend').length?`<span class="bn-badge">${live('pend').length}</span>`:''}</button>`).join('');
-  el.querySelectorAll('[data-bn]').forEach(b=>b.onclick=()=>{ const k=b.dataset.bn; fecharMais(); if(k==='+'){ FORM=null; setTab('lancar'); } else if(k==='mais') abrirMais(); else irArea(k); });
+  el.querySelectorAll('[data-bn]').forEach(b=>b.onclick=()=>{ const k=b.dataset.bn; fecharMais(); if(k==='+'){ abrirLancarModal(); } else if(k==='mais') abrirMais(); else irArea(k); });
 }
 function abrirMais(){
   const sh=$('#maisSheet'); if(!sh) return;
@@ -5749,7 +5783,7 @@ function renderInicio(v, rows){
   </div>`;
   goBind(v);
   v.querySelectorAll('[data-hmo]').forEach(r=>r.onclick=()=>openDetail(STATE.lanc[+r.dataset.hmo]));
-  v.querySelectorAll('[data-qa]').forEach(b=>b.onclick=()=>{ const k=b.dataset.qa; if(k==='transf'){ FORM=null; FORM=novoForm('T'); setTab('lancar'); return; } if(k==='lancar') FORM=null; setTab(k); });
+  v.querySelectorAll('[data-qa]').forEach(b=>b.onclick=()=>{ const k=b.dataset.qa; if(k==='transf'){ abrirLancarModal(novoForm('T')); return; } if(k==='lancar'){ abrirLancarModal(); return; } setTab(k); });
   v.querySelectorAll('[data-hmcat]').forEach(r=>r.onclick=()=>showList(`${cap1(String(r.dataset.hmcat).toLowerCase())} · pago em ${mesNome}`,D.filter(o=>o.pago&&(o.cat||'Sem categoria')===r.dataset.hmcat)));
   v.querySelectorAll('[data-hmcc]').forEach(r=>r.onclick=()=>{ CT.card=r.dataset.hmcc; CT.m=m; setTab('cartoes'); });
   $('#hmPrev').onclick=()=>{ HM_M=Math.max(1,m-1); renderView(); }; $('#hmNext').onclick=()=>{ HM_M=Math.min(12,m+1); renderView(); };
@@ -5821,6 +5855,61 @@ function lcSairSilencioso(){ LC_EDIT=false; if(LC_SUJO){ LC_SUJO=false; STATE=db
 /* saiu da aba com edições: recalcula tudo uma vez */
 const _setTabLc=setTab;
 setTab=function(t,silent){ if(TAB==='lancamentos'&&t!=='lancamentos'&&(LC_EDIT||LC_SUJO)){ LC_EDIT=false; if(LC_SUJO){ LC_SUJO=false; STATE=dbToState(ANO); try{ buildFilterOptions(); }catch(e){} } } return _setTabLc(t,silent); };
+
+/* =====================================================================
+   v1.6.2 — LANÇAR EM JANELA (pop-up no computador, folha que sobe no celular)
+   Usa o mesmo formulário da tela "Novo lançamento".
+   ===================================================================== */
+let LM_ON=false, LM_OUTRO=false;
+function lmTemDados(){ const f=FORM; return !!(f&&(String(f.valor||'').trim()||String(f.desc||'').trim())); }
+function abrirLancarModal(form){
+  if(TAB==='lancar'){ FORM=form||null; renderView(); return; }
+  FORM=form||novoForm(); LM_ON=true;
+  let w=$('#lmWrap'); if(!w){ w=document.createElement('div'); w.id='lmWrap'; document.body.appendChild(w); }
+  w.innerHTML=`<div class="lm-bg"></div><div class="lm-box" role="dialog" aria-modal="true" aria-label="Novo lançamento">
+    <div class="lm-head"><div class="lm-grab"></div><h2>Novo lançamento</h2><span class="spacer"></span>
+      <button class="btn small ghost" id="lmFull" title="Abrir na tela inteira (com a prévia das parcelas ao lado)">⤢ Tela inteira</button>
+      <button class="btn small ghost lm-x" id="lmX" aria-label="Fechar">✕</button></div>
+    <div class="lm-body" id="lmBody"></div></div>`;
+  document.body.classList.add('lm-aberto');
+  w.querySelector('.lm-bg').onclick=()=>fecharLancarModal();
+  $('#lmX').onclick=()=>fecharLancarModal();
+  $('#lmFull').onclick=()=>{ const f=FORM; fecharLancarModal(true); FORM=f; setTab('lancar'); };
+  renderLancar($('#lmBody'));
+}
+function fecharLancarModal(semPerguntar){
+  if(!LM_ON) return;
+  if(!semPerguntar && lmTemDados() && !confirm('Fechar sem lançar? O que foi preenchido será descartado.')) return;
+  LM_ON=false; LM_OUTRO=false; FORM=null; const w=$('#lmWrap'); if(w) w.innerHTML=''; document.body.classList.remove('lm-aberto');
+}
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&LM_ON&&!$('#ov')) fecharLancarModal(); });
+/* o formulário, quando está na janela: título fora, botão "Salvar e lançar outro", cancelar fecha a janela */
+const _renderLancarLM=renderLancar;
+renderLancar=function(v){
+  _renderLancarLM(v);
+  if(!v||v.id!=='lmBody') return;
+  const ed=!!(FORM&&FORM.edit);
+  const h=v.querySelector('.ph'); if(h){ const calc=h.querySelector('#bCalc'); h.remove(); if(calc){ calc.classList.add('ghost'); calc.innerHTML='🧮<span class="lm-lbl"> Calculadora</span>'; calc.title='Calculadora'; const hd=$('#lmWrap .lm-head'); const old=hd.querySelector('#bCalc'); if(old) old.remove(); hd.insertBefore(calc,$('#lmFull')); calc.onclick=()=>calculadora(); } }
+  const sv=v.querySelector('#bSalvar');
+  if(sv&&!ed&&!v.querySelector('#bSalvarOutro')){ const b=document.createElement('button'); b.className='btn'; b.id='bSalvarOutro'; b.textContent='Salvar e lançar outro'; b.onclick=()=>{ LM_OUTRO=true; salvarForm(v); }; sv.insertAdjacentElement('afterend',b); }
+  const lp=v.querySelector('#bLimpar'); if(lp){ lp.textContent='Cancelar'; lp.onclick=()=>fecharLancarModal(); }
+  const cn=v.querySelector('#bCancelar'); if(cn) cn.onclick=()=>fecharLancarModal();
+};
+/* depois de salvar: fecha a janela (ou limpa para o próximo, mantendo tipo e cartão) */
+const _salvarFormLM=salvarForm;
+salvarForm=async function(v){
+  if(!v||v.id!=='lmBody') return _salvarFormLM(v);
+  const antes=TAB; const outro=LM_OUTRO; LM_OUTRO=false; const ed0=EDITS;
+  const st=_setTabLM;
+  // durante o salvar, não sai da tela em que a pessoa estava
+  setTab=function(t,s){ return t===antes?st(t,s):undefined; };
+  try{ await _salvarFormLM(v); } finally { setTab=st; }
+  if(!LM_ON || EDITS===ed0) return;            // não salvou (faltou algo): a janela continua aberta com o aviso
+  if(outro){ renderLancar($('#lmBody')); const d=$('#lmBody [name=valor]'); if(d) d.focus(); } else fecharLancarModal(true);
+};
+const _setTabLM=setTab;
+/* os botões que abrem a janela */
+{ const b=$('#btnNovo'); if(b) b.onclick=()=>abrirLancarModal(); }
 
 </script>
 </body>
