@@ -805,6 +805,9 @@ body.ocultar .ec-t input[data-ecv],body.ocultar #ecTot{filter:blur(6px)}
 
 .ec-frm{background:none;border:0;padding:0;box-shadow:none}
 .ec-t tbody{max-height:none}
+
+.modal.ov-shake{animation:ovShake .3s}
+@keyframes ovShake{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
 </style>
 <script src="config.js"></script>
 </head>
@@ -1589,7 +1592,7 @@ function openDetail(o){
 function closeDetail(){ $('#drawer').classList.add('hidden'); $('#drawerBg').classList.add('hidden'); }
 function modal(html, onMount){
   const root=$('#modalRoot'); root.innerHTML=`<div class="ov" id="ov"><div class="modal">${html}</div></div>`;
-  $('#ov').addEventListener('click',e=>{ if(e.target.id==='ov') closeModal(); });
+  $('#ov').addEventListener('click',e=>{ if(e.target.id!=='ov') return; if(root.querySelector('.modal input:not([type=checkbox]):not([type=radio]),.modal textarea,.modal select')){ const m=root.querySelector('.modal'); m.classList.remove('ov-shake'); void m.offsetWidth; m.classList.add('ov-shake'); toast('Use Salvar ou ✕ para fechar'); return; } closeModal(); });
   root.querySelectorAll('[data-close]').forEach(b=>b.onclick=closeModal);
   if(onMount) onMount(root);
 }
@@ -4163,6 +4166,8 @@ function calcForm(f){
 }
 
 /* forma de pagamento da saída: as formas de sempre + os cartões (escolher um cartão vira compra no cartão) */
+function fpROpcoes(f){ const est=f.t==='C'&&f.formaC==='Estorno';
+  return `<option value="" ${!est?'selected':''}>Não — entrada normal</option><optgroup label="Sim, estorno no cartão">${cartoesAtivos().map(c=>`<option value="C:${c.id}" ${est&&f.cartao===c.id?'selected':''}>↩ ${esc(c.nome)}${c.final?' · final '+esc(c.final):''}</option>`).join('')}</optgroup>`; }
 function fpOpcoes(f){
   const base=['PIX','DÉBITO','BOLETO','DINHEIRO','PAGAMENTO EM CONTA','TRANSFERÊNCIA','DÉBITO AUTOMÁTICO'];
   const L=(listas().formas||[]); const vis=new Set(); const fs=[];
@@ -4180,10 +4185,11 @@ function renderLancar(v){
   const pend = f.pend ? byId('pend', f.pend) : null;
   v.innerHTML = pageHead(ed?'Editar lançamento':'Novo lançamento', ed?'Altere e salve. Para apagar, use Excluir.':'Escolha o tipo e preencha. Dica: no valor dá para fazer contas (ex.: 120+35,90).', '<button class="btn small" id="bCalc">🧮 Calculadora</button>')
   + `<div class="grid"><div class="card c7 frm" id="frm">
-      ${segBtns('t',[['D','💸 Saída'],['R','💰 Entrada']].concat(semContas()?[]:[['T','🔁 Transf.']]),f.t==='C'?'D':f.t)}
+      ${segBtns('t',[['D','💸 Saída'],['R','💰 Entrada']].concat(semContas()?[]:[['T','🔁 Transf.']]),f.t==='C'?(f.formaC==='Estorno'?'R':'D'):f.t)}
       <div class="fgrid">
         ${field('',`<input type="date" name="data" value="${esc(f.data)}">`,'','') .replace('<span class="fl"></span>',`<span class="fl" id="lblData"></span>`)}
         ${field('',`<input name="valor" inputmode="decimal" placeholder="0,00" value="${esc(f.valor)}" autocomplete="off">`).replace('<span class="fl"></span>',`<span class="fl" id="lblValor"></span>`)}
+        ${cartoesAtivos().length?field('Estorno de cartão?',`<select name="fpR">${fpROpcoes(f)}</select>`,'only-rx span2','Dinheiro devolvido numa compra do cartão (reembolso, cancelamento): escolha o cartão e o valor entra como crédito na fatura.'):''}
         ${field('Forma de pagamento',`<select name="fp">${fpOpcoes(f)}</select>`,'only-dc span2','Escolhendo um cartão, a saída vira compra no cartão: aparecem as parcelas e a fatura.')}
         ${field('Descrição',`<input name="desc" list="dlDesc" value="${esc(f.desc)}" placeholder="Ex.: Mercado, Conta de luz…" autocomplete="off">`,'span2')}
         ${field('Categoria',`<input name="cat" list="dlCat" value="${esc(f.cat)}" autocomplete="off">`,'no-t')}
@@ -4231,7 +4237,10 @@ function renderLancar(v){
     root.querySelectorAll('[data-only]').forEach(el=>el.classList.toggle('hidden', !el.dataset.only.includes(f.t==='C'?'C':f.t)));
     root.querySelectorAll('.no-t').forEach(el=>el.classList.toggle('hidden', f.t==='T'));
     root.querySelectorAll('.only-r').forEach(el=>el.classList.toggle('hidden', f.t!=='R'));
-    root.querySelectorAll('.only-dc').forEach(el=>el.classList.toggle('hidden', f.t!=='D'&&f.t!=='C'));
+    const estC=f.t==='C'&&f.formaC==='Estorno';
+    root.querySelectorAll('.only-dc').forEach(el=>el.classList.toggle('hidden', !(f.t==='D'||(f.t==='C'&&!estC))));
+    root.querySelectorAll('.only-rx').forEach(el=>el.classList.toggle('hidden', !(f.t==='R'||estC)));
+    { const sg=root.querySelector('[data-seg=t]'); if(sg) sg.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed', x.dataset.v===(f.t==='C'?(estC?'R':'D'):f.t))); }
     root.querySelectorAll('.only-pago').forEach(el=>el.classList.toggle('hidden', f.status!=='PAGO'));
     root.querySelectorAll('.only-parc').forEach(el=>el.classList.toggle('hidden', f.formaC==='À Vista'||f.formaC==='Estorno'));
     $('#lblData').textContent = f.t==='T'?'Data da transferência':f.t==='C'?'Data da compra':f.t==='R'?'Data (recebimento)':'Data (vencimento)';
@@ -4247,7 +4256,8 @@ function renderLancar(v){
     const m=$('#fmsg'); m.textContent = r.falta ? r.falta : '✔ Pronto para '+(ed?'salvar':'lançar'); m.className='fmsg '+(r.falta?'warn':'ok');
   };
   root.querySelectorAll('input,select').forEach(el=>{ el.oninput=el.onchange=()=>{ f[el.name]=el.value; if(el.name==='cat'){ const d=$('#dlSub'); if(d) d.outerHTML=dl('dlSub',subcats(f.cat)); } sync(); }; });
-  root.querySelectorAll('[data-seg]').forEach(sg=>sg.querySelectorAll('button').forEach(b=>b.onclick=()=>{ if(sg.dataset.seg==='t'&&b.dataset.v==='D'&&f.t==='C') return; f[sg.dataset.seg]=b.dataset.v; sg.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); if(sg.dataset.seg==='t'){ if(!ed) lsSet('fin-ult-tipo',f.t); renderLancar(v); return; } sync(); }));
+  root.querySelectorAll('[data-seg]').forEach(sg=>sg.querySelectorAll('button').forEach(b=>b.onclick=()=>{ if(sg.dataset.seg==='t'&&f.t==='C'){ const est=f.formaC==='Estorno'; if((b.dataset.v==='D'&&!est)||(b.dataset.v==='R'&&est)) return; if(b.dataset.v==='D'&&est){ f.formaC='À Vista'; renderLancar(v); return; } } f[sg.dataset.seg]=b.dataset.v; sg.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b)); if(sg.dataset.seg==='t'){ if(!ed) lsSet('fin-ult-tipo',f.t); renderLancar(v); return; } sync(); }));
+  { const fr=root.querySelector('[name=fpR]'); if(fr) fr.oninput=fr.onchange=()=>{ const val=fr.value; if(val.startsWith('C:')){ f.t='C'; f.cartao=val.slice(2); f.formaC='Estorno'; f.fatura1=''; } else { f.t='R'; } if(!ed) lsSet('fin-ult-tipo',f.t); renderLancar(v); }; }
   { const fp=root.querySelector('[name=fp]'); if(fp) fp.oninput=fp.onchange=()=>{ const val=fp.value;
       if(val.startsWith('C:')){ f.t='C'; f.cartao=val.slice(2); if(!f.formaC) f.formaC='À Vista'; f.fatura1=''; }
       else if(val==='__outra'){ const x=prompt('Qual a forma de pagamento?'); if(x&&x.trim()){ f.forma=x.trim().toUpperCase(); if(f.t==='C') f.t='D'; } }
@@ -5439,7 +5449,7 @@ renderView=function(){ _renderViewKdd(); try{ decorateKpis($('#view')); }catch(e
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.6.3';
+const APP_VER='1.6.4';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
@@ -5932,7 +5942,7 @@ function editarCompra(id, foco){
   if(!foco){ if(TAB==='faturas'&&FT.ym) foco=FT.ym; else if(TAB==='cartoes'&&CT.m) foco=STATE.ano+'-'+String(CT.m).padStart(2,'0'); }
   const c=cartaoById(p.cartao)||{}; const est=p.forma==='Estorno';
   let P=Object.keys(p.parc||{}).sort().map(ym=>({ym, v:Math.abs(+p.parc[ym]||0)}));
-  const anos=[...new Set([STATE.ano-1,STATE.ano,STATE.ano+1,STATE.ano+2].concat(P.map(x=>+x.ym.slice(0,4))))].sort();
+  const anosBase=P.map(x=>+x.ym.slice(0,4)); const aMin=Math.min(STATE.ano-2,...anosBase)-1, aMax=Math.max(STATE.ano+2,...anosBase)+1; const anos=[]; for(let a=aMin;a<=aMax;a++) anos.push(a);
   const optMes=sel=>anos.map(a=>MESES_C.map((m,i)=>{ const ym=a+'-'+String(i+1).padStart(2,'0'); return `<option value="${ym}" ${ym===sel?'selected':''}>${ymLabel(ym)}</option>`; }).join('')).join('');
   const linhas=()=>P.map((x,i)=>`<tr class="${x.ym===foco?'ec-foco':''}"><td class="note">${i+1}/${P.length}</td><td><select data-ecm="${i}">${optMes(x.ym)}</select>${x.ym===foco?' <span class="pill">esta fatura</span>':''}</td><td class="num"><input data-ecv="${i}" inputmode="decimal" value="${fmtNumBR(x.v)}" style="width:110px;text-align:right"></td><td><button class="btn small ghost" data-ecx="${i}" title="Tirar esta parcela">✕</button></td></tr>`).join('');
   const tot=()=>sum(P,x=>x.v);
@@ -5950,7 +5960,7 @@ function editarCompra(id, foco){
     <h3 style="margin:14px 0 6px">Parcelas ${est?'<span class="pill">estorno (entra negativo)</span>':''}</h3>
     <div class="twrap short"><table class="ec-t"><thead><tr><th>Nº</th><th>Fatura</th><th class="num">Valor</th><th></th></tr></thead><tbody id="ecTb">${linhas()}</tbody>
       <tfoot><tr><td></td><td>Total da compra</td><td class="num" id="ecTot">${brl(tot())}</td><td></td></tr></tfoot></table></div>
-    <div class="fbtns" style="margin-top:8px"><button class="btn small" id="ecAdd">+ Parcela</button></div>
+    <div class="fbtns" style="margin-top:8px;flex-wrap:wrap"><button class="btn small" id="ecAdd">+ Parcela</button><span class="spacer"></span><span class="note">Mover todas as parcelas:</span><button class="btn small" id="ecAnt" title="Todas as parcelas uma fatura antes (ex.: começar em dez em vez de jan)">◀ 1 mês antes</button><button class="btn small" id="ecDep" title="Todas as parcelas uma fatura depois">1 mês depois ▶</button></div>
     <div class="fbtns" style="margin-top:14px;flex-wrap:wrap"><button class="btn primary" id="ecOk">Salvar</button><button class="btn" data-close>Cancelar</button><span class="spacer"></span><button class="btn small ghost" id="ecForm" title="Refazer a compra pelo formulário (recalcula todas as parcelas)">Refazer pelo formulário</button><button class="btn small ghost" id="ecDel" style="color:var(--crit)">Excluir compra</button></div>`,
   root=>{
     const bind=()=>{ const tb=root.querySelector('#ecTb'); tb.innerHTML=linhas();
@@ -5960,6 +5970,8 @@ function editarCompra(id, foco){
     bind();
     const f=root.querySelector(`[data-ecv]`); const fo=root.querySelector('.ec-foco [data-ecv]'); setTimeout(()=>{ const el=fo||null; if(el){ el.focus(); el.scrollIntoView({block:'nearest'}); } },60);
     root.querySelector('#ecAdd').onclick=()=>{ const ult=P.length?P[P.length-1].ym:(foco||STATE.ano+'-01'); const [a,m]=ult.split('-').map(Number); const ym=m===12?(a+1)+'-01':a+'-'+String(m+1).padStart(2,'0'); P.push({ym,v:P.length?P[P.length-1].v:0}); bind(); root.querySelector('#ecTot').textContent=brl(tot()); };
+    const mover=d=>{ root.querySelectorAll('[data-ecv]').forEach(inp=>{ P[+inp.dataset.ecv].v=Math.round(numBR(inp.value)*100)/100; }); P.forEach(x=>x.ym=ymAdd(x.ym,d)); bind(); toast(d<0?'Parcelas uma fatura antes — confira e salve':'Parcelas uma fatura depois — confira e salve'); };
+    root.querySelector('#ecAnt').onclick=()=>mover(-1); root.querySelector('#ecDep').onclick=()=>mover(1);
     root.querySelector('#ecForm').onclick=()=>{ closeModal(); editarCompraForm(id); };
     root.querySelector('#ecDel').onclick=async()=>{ if(!confirm('Excluir esta compra e todas as parcelas?')) return; del('compras',id); live('carro').filter(a=>a.lanc===id).forEach(a=>del('carro',a.id)); closeModal(); await commit('Compra excluída'); };
     root.querySelector('#ecOk').onclick=async()=>{
