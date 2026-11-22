@@ -3961,10 +3961,10 @@ function dbToState(ano){
     S.cadCart.push({cartao:c.nome, aba:c.nome, ref:refFatura(c), limite:+c.limite||0, venc:+c.venc||0, melhor:+c.melhor||0, conta:c.conta||'', ativo:c.ativo!==false});
     for(let m=1;m<=12;m++){
       const ym=ano+'-'+String(m).padStart(2,'0'); const f=faturaRec(c.id, ym); const tot=(f&&f.viaOutro&&f.status==='PAGO')?0:totalFatura(c.id, ym)-dividaTransferida(c.id, ym);
-      if(!tot && !f) continue;
+      if(Math.abs(tot)<0.005 && !(f&&f.viaOutro&&f.status==='PAGO')) continue;   // fatura zerada não é conta a pagar
       const venc=Math.min(28,Math.max(1,+c.venc||10));
       const pago=f && f.status==='PAGO';
-      S.lanc.push(mkLanc({t:'D', data:new Date(ano,m-1,venc), plano:'CARTÃO CRÉDITO', ref:refFatura(c), desc:'Fatura '+c.nome, descD:'', cat:'', sub:'', tipo:'', forma:'CARTÃO DE CRÉDITO', status:pago?'PAGO':'EM ABERTO', valor:tot, obs:(f&&f.viaOutro&&f.status==='PAGO')?'Paga com '+(((cartaoById(f.pagoCom)||{}).nome)||'outro cartão')+' — o gasto está na fatura dele':(f&&f.dataPag?fmtDateS(parseISO(f.dataPag)):''), conta:(f&&f.conta)||c.conta||'', aba:'', linha:'', src:{k:'fatura',cartao:c.id,ym}}, S));
+      S.lanc.push(mkLanc({t:'D', data:(f&&f.venc&&parseISO(f.venc))||new Date(ano,m-1,venc), plano:'CARTÃO CRÉDITO', ref:refFatura(c), desc:'Fatura '+c.nome, descD:'', cat:'', sub:'', tipo:'', forma:'CARTÃO DE CRÉDITO', status:pago?'PAGO':'EM ABERTO', valor:tot, obs:(f&&f.viaOutro&&f.status==='PAGO')?'Paga com '+(((cartaoById(f.pagoCom)||{}).nome)||'outro cartão')+' — o gasto está na fatura dele':(f&&f.dataPag?fmtDateS(parseISO(f.dataPag)):''), conta:(f&&f.conta)||c.conta||'', aba:'', linha:'', src:{k:'fatura',cartao:c.id,ym}}, S));
     }
   });
   S.cartoes.forEach(c=>c.compras.forEach(p=>{ p.cls=kwClass([p.lan,p.ref,p.forma,p.nota].join(' '),S); }));
@@ -4324,13 +4324,14 @@ function detailActions(o){
   const rr=o.src.k==='lanc'?byId('lanc',o.src.id):o.src.k==='compra'?byId('compras',o.src.id):null; const fb=rr&&rr.foto?`<button class="btn" id="daFoto">📎 Comprovante</button>`:'';
   if(o.src.k==='compra') return `<div class="fbtns" style="margin:12px 0"><button class="btn primary" id="daEditC">✏️ Editar compra</button>${fb}</div>`;
   if(o.src.k==='lanc') return `<div class="fbtns" style="margin:12px 0"><button class="btn primary" id="daEdit">✏️ Editar</button>${fb}${o.pago?'':`<button class="btn" id="daPago">✔ Marcar como ${o.t==='R'?'recebido':'pago'}</button>`}<button class="btn danger" id="daDel">Excluir</button></div>${o.by?`<p class="note">Último a mexer: ${esc(o.by)}</p>`:''}`;
-  if(o.src.k==='fatura') return `<div class="fbtns" style="margin:12px 0"><button class="btn primary" id="daFat">✏️ Editar ou dar baixa na fatura</button></div><p class="note">A fatura é a soma das compras do cartão: para mudar valores, edite as compras dentro dela.</p><div></div>`;
+  if(o.src.k==='fatura') return `<div class="fbtns" style="margin:12px 0"><button class="btn primary" id="daFat">💳 Abrir a fatura</button><button class="btn" id="daFatEd">📅 Editar vencimento e pagamento</button></div><p class="note">A fatura é a soma das compras do cartão: para mudar valores, edite as compras dentro dela.</p><div></div>`;
   return '';
 }
 function bindDetailActions(o){
   if(!o.src) return;
   if($('#daEdit')) $('#daEdit').onclick=()=>editarLanc(o.src.id);
   if($('#daEditC')) $('#daEditC').onclick=()=>editarCompra(o.src.id);
+  if($('#daFatEd')) $('#daFatEd').onclick=()=>{ closeDetail(); editarFatura(o.src.cartao, o.src.ym); };
   if($('#daFoto')) $('#daFoto').onclick=()=>{ const rr=byId(o.src.k==='lanc'?'lanc':'compras',o.src.id); verFoto(rr.foto); };
   if($('#daDel')) $('#daDel').onclick=async()=>{ if(!confirm('Excluir este lançamento?')) return; const x=byId('lanc',o.src.id); if(x&&x.par) del('lanc',x.par); del('lanc',o.src.id); closeDetail(); await commit('Excluído'); };
   if($('#daPago')) $('#daPago').onclick=()=>{ closeDetail(); BX.sel=new Set(['L|'+o.src.id]); setTab('baixas'); };
@@ -4448,7 +4449,7 @@ function renderFaturas(v){
   + `<div class="ttools">${cards.map(x=>`<button class="chip" data-card="${x.id}" aria-pressed="${x.id===c.id}">${badgeCard(x,1)} ${esc(x.nome)}</button>`).join('')}</div>
     <div class="ttools"><button class="btn small" id="ftPrev">◀</button><b style="min-width:90px;text-align:center">Fatura de ${ymLabel(FT.ym)}</b><button class="btn small" id="ftNext">▶</button><span class="spacer"></span><button class="btn small primary" id="ftNova">+ Compra neste cartão</button></div>
     <div class="kpis">${kpi('Total da fatura',brl(tot),itens.length+' item(ns)','blue')}${kpi('Situação',pago?'Paga':'Em aberto',pago?(f.pagoCom?'💳 paga com '+esc((cartaoById(f.pagoCom)||{}).nome||'outro cartão'):f.conta?'🏦 '+esc(f.conta):'')+(f.dataPag?' · '+fmtDateS(parseISO(f.dataPag)):''):'vence dia '+(c.venc||'—'),pago?'green':'amber')}${!c.limite?'':kpi('Limite livre',c.limite?brl(c.limite-sum(live('compras').filter(p=>p.cartao===c.id),p=>sum(Object.entries(p.parc||{}).filter(([k])=>k>=FT.ym),([,x])=>x))):'—',c.limite?'de '+brl(c.limite):'sem limite no cadastro','green')}${f&&f.valorPago!=null&&pago&&Math.abs(f.valorPago-tot)>.005?kpi('Valor pago',brl(f.valorPago),'diferente do total','purple'):''}</div>
-    <div class="fbtns">${pago?'<button class="btn" id="ftReabrir">Reabrir fatura</button>':`${semContas()?'':`<select id="ftConta">${opt(contasAtivas(),(f&&f.conta)||c.conta||'','Conta que pagou (opcional)')}</select>`}<input type="date" id="ftData" value="${hojeISO()}" title="Data do pagamento"><input id="ftValor" inputmode="decimal" value="${esc(fmtNumBR(tot))}" style="width:120px" title="Valor pago (mude se pagou com juros ou só uma parte)"><button class="btn primary" id="ftPagar" ${tot?'':'disabled'}>Pagar fatura</button>${cartoesAtivos().length>1&&tot?'<button class="btn" id="ftPagarCC">💳 Pagar com outro cartão</button>':''}<span class="note">Pagou um valor diferente? Mude o valor: o app pergunta se foi juros ou pagamento parcial.</span>`}</div>
+    <div class="fbtns"><button class="btn" id="ftEditar" title="Mudar o vencimento desta fatura, a data do pagamento, a conta ou o valor pago">📅 Editar vencimento e pagamento</button>${pago?'<button class="btn" id="ftReabrir">Reabrir fatura</button>':`${semContas()?'':`<select id="ftConta">${opt(contasAtivas(),(f&&f.conta)||c.conta||'','Conta que pagou (opcional)')}</select>`}<input type="date" id="ftData" value="${hojeISO()}" title="Data do pagamento"><input id="ftValor" inputmode="decimal" value="${esc(fmtNumBR(tot))}" style="width:120px" title="Valor pago (mude se pagou com juros ou só uma parte)"><button class="btn primary" id="ftPagar" ${tot?'':'disabled'}>Pagar fatura</button>${cartoesAtivos().length>1&&tot?'<button class="btn" id="ftPagarCC">💳 Pagar com outro cartão</button>':''}<span class="note">Pagou um valor diferente? Mude o valor: o app pergunta se foi juros ou pagamento parcial.</span>`}</div>
     <div class="grid"><div class="card c8"><h3>Compras da fatura</h3><div class="twrap"><table id="tFt"></table></div></div>
     <div class="card c4"><h3>Próximas faturas</h3><div class="twrap short"><table><tbody>${prox.map(x=>`<tr class="clk" data-ym="${x.ym}"><td>${ymLabel(x.ym)}</td><td class="num">${brl(x.v)}</td><td>${x.st==='PAGO'?'<span class="pill">paga</span>':''}</td></tr>`).join('')}</tbody></table></div></div>
     <div class="card c12"><h3>Conferir com a fatura do banco</h3><div class="sub">Escolha a fatura baixada do banco (PDF, Excel ou CSV — Itaú, Mercado Pago, PicPay, Nubank…). O app compara com as compras deste cartão em ${ymLabel(FT.ym)}.</div>
@@ -4461,6 +4462,7 @@ function renderFaturas(v){
   $('#ftNova').onclick=()=>abrirLancar({t:'C',cartao:c.id});
   if($('#ftPagar')) $('#ftPagar').onclick=()=>pagarFatura(c, FT.ym, tot, f, $('#ftConta')?$('#ftConta').value:'', $('#ftData').value, numBR($('#ftValor').value), ()=>renderFaturas(v));
   if($('#ftPagarCC')) $('#ftPagarCC').onclick=()=>pagarFaturaComCartao(c.id, FT.ym);
+  if($('#ftEditar')) $('#ftEditar').onclick=()=>editarFatura(c.id, FT.ym);
   if($('#ftReabrir')) $('#ftReabrir').onclick=async()=>{ const aj=live('compras').filter(p=>p.fatAjuste===f.id); if(aj.length && !confirm(`Reabrir a fatura também desfaz ${aj.length} ajuste(s) criados no pagamento (juros ou restante). Continuar?`)) return; aj.forEach(p=>del('compras',p.id)); put('faturas',Object.assign({},f,{status:'EM ABERTO',dataPag:'',valorPago:null,pagoCom:'',viaOutro:0})); await commit('Fatura reaberta'); renderFaturas(v); };
   $('#ftArq').onchange=async e=>{ const file=e.target.files[0]; if(!file) return; try{ let r; if(/\.pdf$/i.test(file.name)||file.type==='application/pdf'){ toast('Lendo o PDF…'); r=await lerFaturaPDF(file); } else { const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array',cellDates:true}); r=lerFaturaBanco(wb); } if(r.ym && r.ym!==FT.ym && confirm(`O arquivo é da fatura de ${ymLabel(r.ym)}. Mudar para esse mês?`)) FT.ym=r.ym; FT.conf=conferir(c.id,FT.ym,r.linhas); FT.conf.texto=r.texto||null; renderFaturas(v); }catch(err){ console.error(err); toast('Não consegui ler o arquivo: '+err.message); } };
   if(FT.conf) mostrarConf(c);
@@ -5449,7 +5451,7 @@ renderView=function(){ _renderViewKdd(); try{ decorateKpis($('#view')); }catch(e
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.6.4';
+const APP_VER='1.6.5';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
@@ -5985,6 +5987,42 @@ function editarCompra(id, foco){
         forma: est?'Estorno':(p.forma==='Recorrente'?'Recorrente':(P.length>1?'Parcelado':'À Vista'))});
       put('compras',rec); garantirCat(rec.cat,rec.sub); garantirLista('refCartao',rec.ref);
       closeModal(); await commit('Compra atualizada ✓');
+    };
+  });
+}
+
+/* =====================================================================
+   v1.6.5 — EDITAR UMA FATURA: vencimento, situação, data do pagamento, conta, valor pago
+   ===================================================================== */
+function editarFatura(cartaoId, ym){
+  const c=cartaoById(cartaoId); if(!c) return; const id=cartaoId+'|'+ym; const f=faturaRec(cartaoId, ym)||null;
+  const [y,m]=ym.split('-').map(Number); const vencPad=y+'-'+String(m).padStart(2,'0')+'-'+String(Math.min(28,Math.max(1,+c.venc||10))).padStart(2,'0');
+  const tot=Math.round((totalFatura(cartaoId,ym)-dividaTransferida(cartaoId,ym))*100)/100;
+  let st=f&&f.status==='PAGO'?'PAGO':'EM ABERTO';
+  modal(`<button class="btn small x" data-close>✕</button><h2>Fatura ${esc(c.nome)} · ${ymLabel(ym)}</h2>
+    <p class="note">Total pelas compras: <b>${brl(tot)}</b>. Aqui você ajusta as datas e a baixa; o valor da fatura muda editando as compras dela.</p>
+    <div class="frm ec-frm"><div class="fgrid">
+      ${field('Vencimento desta fatura',`<input type="date" id="efVenc" value="${esc((f&&f.venc)||vencPad)}">`,'','Padrão do cadastro: dia '+(+c.venc||10)+'. Mude se esta fatura venceu em outro dia.')}
+      ${field('Situação',segBtns('efSt',[['EM ABERTO','Em aberto'],['PAGO','Paga']],st))}
+      ${field('Data do pagamento',`<input type="date" id="efPag" value="${esc((f&&f.dataPag)||hojeISO())}">`,'ef-pago')}
+      ${field('Valor pago',`<input id="efValor" inputmode="decimal" value="${esc(fmtNumBR(f&&f.valorPago!=null?f.valorPago:tot))}">`,'ef-pago')}
+      ${semContas()?'':field('Conta que pagou',`<select id="efConta">${opt(contasAtivas(),(f&&f.conta)||c.conta||'','—')}</select>`,'ef-pago')}
+      ${field('Observação',`<input id="efObs" value="${esc((f&&f.obs)||'')}">`,'span2')}
+    </div></div>
+    ${f&&f.pagoCom?`<p class="note">Esta fatura foi paga com o cartão <b>${esc((cartaoById(f.pagoCom)||{}).nome||'outro cartão')}</b>. Para desfazer, use “Reabrir fatura” na aba Faturas.</p>`:''}
+    <div class="fbtns" style="margin-top:12px"><button class="btn primary" id="efOk">Salvar</button><button class="btn" data-close>Cancelar</button></div>`,
+  root=>{
+    const sync=()=>root.querySelectorAll('.ef-pago').forEach(el=>el.classList.toggle('hidden',st!=='PAGO'));
+    root.querySelectorAll('[data-seg=efSt] button').forEach(b=>b.onclick=()=>{ st=b.dataset.v; root.querySelectorAll('[data-seg=efSt] button').forEach(x=>x.setAttribute('aria-pressed',x===b)); sync(); });
+    sync();
+    root.querySelector('#efOk').onclick=async()=>{
+      const venc=root.querySelector('#efVenc').value; if(!venc){ toast('Informe o vencimento'); return; }
+      const rec=Object.assign({id, cartao:cartaoId, ym}, f||{});
+      rec.venc = venc===vencPad ? '' : venc;
+      rec.obs=root.querySelector('#efObs').value.trim();
+      if(st==='PAGO'){ rec.status='PAGO'; rec.dataPag=root.querySelector('#efPag').value||hojeISO(); const vp=Math.round(numBR(root.querySelector('#efValor').value)*100)/100; rec.valorPago=Math.abs(vp-tot)<0.005?null:vp; if($('#efConta')) rec.conta=$('#efConta').value||''; }
+      else { if(f&&f.status==='PAGO'){ const aj=live('compras').filter(p=>p.fatAjuste===id); if(aj.length&&!confirm(`Voltar para "em aberto" também desfaz ${aj.length} ajuste(s) criados no pagamento. Continuar?`)) return; aj.forEach(p=>del('compras',p.id)); } rec.status='EM ABERTO'; rec.dataPag=''; rec.valorPago=null; rec.pagoCom=''; rec.viaOutro=0; }
+      put('faturas',rec); closeModal(); await commit('Fatura atualizada ✓');
     };
   });
 }
