@@ -5451,7 +5451,7 @@ renderView=function(){ _renderViewKdd(); try{ decorateKpis($('#view')); }catch(e
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.6.5';
+const APP_VER='1.6.6';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
@@ -5776,7 +5776,7 @@ function renderInicio(v, rows){
   const cad=live('cartoes');
   const cc=(STATE.cartoes||[]).map((c,i)=>{ const k=cad.find(x=>nkey(x.nome)===nkey(c.nome)||nkey(x.aba||'')===nkey(c.nome))||{}; const fat=(c.meses||[])[m-1]||0; const comp=sum((c.meses||[]).slice(m-1),x=>x); return {c,k,fat,comp,i}; }).filter(x=>x.fat>0||x.comp>0).sort((a,b)=>b.fat-a.fat);
   const ccHTML=cc.length?`<div class="hm-cards">${cc.map((x,j)=>{ const g=gradC[j%gradC.length]; const lim=+x.k.limite||0; const pu=lim?Math.min(1,x.comp/lim):null;
-      return `<div class="hm-cc" data-hmcc="${esc(x.c.nome)}" style="background:linear-gradient(135deg,${g[0]},${g[1]})"><div class="n"><span>${esc(x.c.nome)}</span><span>${x.k.venc?'vence '+String(x.k.venc).padStart(2,'0')+'/'+String(m).padStart(2,'0'):''}</span></div><div class="v">${brl(x.fat)}</div>${pu!=null?`<div class="hm-bar"><i style="width:${(pu*100).toFixed(1)}%"></i></div><div class="f"><span>${pct(pu,0)} do limite</span><span>${x.k.final?'final '+esc(x.k.final):brl0(lim)}</span></div>`:`<div class="f"><span>Fatura de ${mesNome}</span><span>${brl0(x.comp)} a vencer</span></div>`}</div>`; }).join('')}</div>`
+      return `<div class="hm-cc" data-hmcc="${esc(x.c.nome)}" style="background:linear-gradient(135deg,${g[0]},${g[1]})"><div class="n"><span>${esc(x.c.nome)}</span><span>${(()=>{ const fr=faturaRec(x.c.id||x.k.id, ano+'-'+String(m).padStart(2,'0')); if(fr&&fr.status==='PAGO') return '✓ paga'; const d=fr&&fr.venc?parseISO(fr.venc):(x.k.venc?new Date(ano,m-1,Math.min(28,+x.k.venc)):null); return d?'vence '+fmtDateS(d).slice(0,5):''; })()}</span></div><div class="v">${brl(x.fat)}</div>${pu!=null?`<div class="hm-bar"><i style="width:${(pu*100).toFixed(1)}%"></i></div><div class="f"><span>${pct(pu,0)} do limite</span><span>${x.k.final?'final '+esc(x.k.final):brl0(lim)}</span></div>`:`<div class="f"><span>Fatura de ${mesNome}</span><span>${brl0(x.comp)} a vencer</span></div>`}</div>`; }).join('')}</div>`
     :`<div class="hm-empty">Nenhuma fatura de cartão em ${mesNome}.</div>`;
   const pend=live('pend').length;
   v.innerHTML=`<div class="hm">
