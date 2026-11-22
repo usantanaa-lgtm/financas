@@ -3751,12 +3751,12 @@ const tokenOk = () => G.token && Date.now() < G.exp - 60000;
 function gLogin(prompt){
   return new Promise(async (res,rej)=>{
     try{ await gInit(); }catch(e){ return rej(e); }
-    G.tc.callback = r => { if(r.error){ rej(new Error(r.error_description||r.error)); return; } G.token=r.access_token; G.exp=Date.now()+(+r.expires_in||3600)*1000; try{ sessionStorage.setItem('fin-tk',JSON.stringify({t:G.token,e:G.exp})); }catch(e){} res(G.token); };
+    G.tc.callback = r => { if(r.error){ rej(new Error(r.error_description||r.error)); return; } G.token=r.access_token; G.exp=Date.now()+(+r.expires_in||3600)*1000; try{ localStorage.setItem('fin-tk',JSON.stringify({t:G.token,e:G.exp})); }catch(e){} if(typeof RENOVA!=='undefined') RENOVA.falhou=0; res(G.token); };
     G.tc.error_callback = e => rej(new Error(e && e.type==='popup_closed' ? 'Janela do Google fechada' : (e&&e.message)||'Login cancelado'));
     G.tc.requestAccessToken({prompt: prompt===undefined ? '' : prompt, hint: lsGet('fin-email','')||undefined});
   });
 }
-try{ const t=JSON.parse(sessionStorage.getItem('fin-tk')||'null'); if(t&&t.e>Date.now()){ G.token=t.t; G.exp=t.e; } }catch(e){}
+try{ const t=JSON.parse(localStorage.getItem('fin-tk')||sessionStorage.getItem('fin-tk')||'null'); if(t&&t.e>Date.now()){ G.token=t.t; G.exp=t.e; } }catch(e){}
 
 async function gfetch(url, opt={}){
   if(!tokenOk()) throw Object.assign(new Error('Sessão do Google expirou'),{auth:1});
@@ -3876,7 +3876,7 @@ setInterval(()=>{ if(document.visibilityState==='visible' && DB && MODE.tipo==='
 function renderSyncChip(){
   const el=$('#syncChip'); if(!el) return;
   const map={ok:['✅','Sincronizado'],sync:['🔄','Sincronizando…'],pend:['⏳','A enviar'],off:['📴','Sem internet'],auth:['🔑','Reconectar'],erro:['⚠️','Erro'],local:['💾','Só neste aparelho'],arq:['📂','Escolher arquivos']};
-  const [ic,tx]=map[SYNC.st]||['',''];
+  let [ic,tx]=map[SYNC.st]||['','']; if(SYNC.st==='auth'&&typeof RENOVA!=='undefined'&&!RENOVA.falhou){ ic='⏸'; tx='Em pausa'; }
   el.innerHTML=ic?`<button class="btn small sync-${SYNC.st}" id="bSync" title="${esc(SYNC.msg||tx)}${SYNC.last?' · última sincronização '+new Date(SYNC.last).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):''}">${ic} <span class="sync-tx">${tx}</span></button>`:'';
   const b=$('#bSync'); if(b) b.onclick=async()=>{
     if(SYNC.st==='auth'){ try{ await gLogin(''); await SYNC.run(true); }catch(e){ toast(e.message); } }
@@ -4867,7 +4867,7 @@ async function sairDoSistema(semPerguntar){
     if(!confirm(msg)) return;
   }
   if(pend){ try{ await SYNC.run(); }catch(e){} if(await lget('dirty:'+MODE.key)){ if(!confirm('Não consegui enviar as últimas alterações (sem internet ou sessão expirada). Sair mesmo assim e perder essas alterações?')) return; } }
-  G.token=''; try{ sessionStorage.removeItem('fin-tk'); }catch(e){}
+  G.token=''; try{ sessionStorage.removeItem('fin-tk'); localStorage.removeItem('fin-tk'); }catch(e){}
   for(const k of ['google','local']){ await ldel('db:'+k); await ldel('fotos:'+k); await ldel('dirty:'+k); }
   ['fin-mode','fin-gfiles','fin-ver','fin-fver','fin-fkeys','fin-lastsync'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
   location.hash=''; location.reload();
@@ -5451,7 +5451,7 @@ renderView=function(){ _renderViewKdd(); try{ decorateKpis($('#view')); }catch(e
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.6.6';
+const APP_VER='1.6.7';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
@@ -6026,6 +6026,27 @@ function editarFatura(cartaoId, ym){
     };
   });
 }
+
+/* =====================================================================
+   v1.6.7 — CONEXÃO COM O GOOGLE SEM FICAR PEDINDO "RECONECTAR"
+   O Google dá ao app uma autorização de 1 hora. Agora ela fica guardada no aparelho
+   (reabrir o app dentro da hora não pede nada) e é renovada sozinha no primeiro toque
+   na tela quando está para vencer. "Reconectar" só aparece se a renovação falhar.
+   ===================================================================== */
+var RENOVA={ult:0, falhou:0};
+function precisaRenovar(){ return MODE.tipo==='google' && G.files && G.files.dados && navigator.onLine && (!G.token || Date.now()>G.exp-5*60000); }
+function renovarNoToque(){
+  if(!precisaRenovar() || Date.now()-RENOVA.ult<90000) return;
+  if(!(window.google&&G.tc)){ gInit().catch(()=>{}); return; }      // carrega o Google para o próximo toque
+  RENOVA.ult=Date.now();
+  gLogin('').then(()=>{ RENOVA.falhou=0; SYNC.run(true); }).catch(()=>{ RENOVA.falhou++; SYNC.set('auth','Toque para reconectar ao Google'); });
+}
+document.addEventListener('click', renovarNoToque, true);
+document.addEventListener('keydown', e=>{ if(e.key==='Enter') renovarNoToque(); }, true);
+/* deixa o Google carregado (assim a renovação acontece dentro do toque, sem atraso) */
+setTimeout(()=>{ try{ if(MODE.tipo==='google') gInit().catch(()=>{}); }catch(e){} }, 2500);
+/* ao voltar para o app: se a autorização ainda vale, sincroniza na hora */
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && MODE.tipo==='google' && tokenOk()) SYNC.schedule(300); });
 
 </script>
 </body>
