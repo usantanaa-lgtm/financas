@@ -794,6 +794,17 @@ body.lm-aberto{overflow:hidden}
   .lm-body .frm .fbtns #bSalvar{grid-column:1/-1;width:100%;justify-content:center}
   .lm-body .frm .fbtns .btn{justify-content:center}
 }
+
+/* editar compra do cartão */
+.ec-g{margin-top:10px}
+.ec-t td{vertical-align:middle;padding:6px 8px}
+.ec-t select,.ec-t input{border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--surface);color:var(--ink)}
+.ec-t tr.ec-foco td{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.ec-t tr.ec-foco input{border-color:var(--accent);font-weight:600}
+body.ocultar .ec-t input[data-ecv],body.ocultar #ecTot{filter:blur(6px)}
+
+.ec-frm{background:none;border:0;padding:0;box-shadow:none}
+.ec-t tbody{max-height:none}
 </style>
 <script src="config.js"></script>
 </head>
@@ -4130,7 +4141,7 @@ function editarLanc(id){ const l=byId('lanc',id); if(!l) return; closeDetail();
   if(l.transf){ const par=l.par?byId('lanc',l.par):null; const sai=l.t==='D'?l:par, ent=l.t==='R'?l:par; abrirLancar({t:'T', data:l.data||'', desc:l.desc||'', valor:fmtNumBR(l.valor), obs:l.obs||'', origem:(sai&&sai.conta)||'', destino:(ent&&ent.conta)||'', edit:{k:'lanc',id:l.id,par:l.par||''}}); return; }
   abrirLancar(Object.assign({t:l.t, data:l.data||'', desc:l.desc||'', valor:fmtNumBR(l.valor), cat:l.cat||'', sub:l.sub||'', obs:l.obs||'', plano:l.plano||'', ref:l.ref||'', status:l.status||'EM ABERTO', conta:l.conta||'', dataPag:l.dataPag||hojeISO(), forma:l.forma||'', tipo:l.tipo||'', repetir:1, foto:l.foto||'', edit:{k:'lanc',id}}, abastDe(l.id))); }
 function abastDe(id){ const a=live('carro').find(x=>x.lanc===id); return a?{litros:fmtNumBR(a.litros), hod:a.hod?String(a.hod):'', posto:a.posto||'', cheio:a.cheio?'1':'0'}:{}; }
-function editarCompra(id){ const p=byId('compras',id); if(!p) return; closeDetail();
+function editarCompraFormOrig(id){ const p=byId('compras',id); if(!p) return; closeDetail();
   const meses=Object.keys(p.parc||{}).sort();
   abrirLancar(Object.assign({t:'C', data:p.data||'', desc:p.desc||'', valor:fmtNumBR(Math.abs(p.forma==='Recorrente'?(p.parc[meses[0]]||p.valor):p.valor)), cat:p.cat||'', sub:p.sub||'', obs:p.obs||'', cartao:p.cartao, formaC:p.forma||'À Vista', n:p.forma==='À Vista'?2:(meses.length||p.n||1), refC:p.ref||'', fatura1:meses[0]||'', foto:p.foto||'', edit:{k:'compras',id}}, abastDe(id))); }
 
@@ -5428,7 +5439,7 @@ renderView=function(){ _renderViewKdd(); try{ decorateKpis($('#view')); }catch(e
    ===================================================================== */
 ME.email=lsGet('fin-email',''); ME.nome=lsGet('fin-nome','');
 
-const APP_VER='1.6.2';
+const APP_VER='1.6.3';
 function mostrarInicio(){
   $('#app').classList.add('hidden'); $('#emptyState').classList.remove('hidden'); document.body.classList.add('no-app');
   const em=lsGet('fin-email','');
@@ -5910,6 +5921,61 @@ salvarForm=async function(v){
 const _setTabLM=setTab;
 /* os botões que abrem a janela */
 { const b=$('#btnNovo'); if(b) b.onclick=()=>abrirLancarModal(); }
+
+/* =====================================================================
+   v1.6.3 — EDITAR UMA COMPRA DO CARTÃO: parcela por parcela + textos
+   (sem recalcular a compra inteira; o mês da fatura aberta vem destacado)
+   ===================================================================== */
+const editarCompraForm=editarCompraFormOrig;
+function editarCompra(id, foco){
+  const p=byId('compras',id); if(!p) return; closeDetail();
+  if(!foco){ if(TAB==='faturas'&&FT.ym) foco=FT.ym; else if(TAB==='cartoes'&&CT.m) foco=STATE.ano+'-'+String(CT.m).padStart(2,'0'); }
+  const c=cartaoById(p.cartao)||{}; const est=p.forma==='Estorno';
+  let P=Object.keys(p.parc||{}).sort().map(ym=>({ym, v:Math.abs(+p.parc[ym]||0)}));
+  const anos=[...new Set([STATE.ano-1,STATE.ano,STATE.ano+1,STATE.ano+2].concat(P.map(x=>+x.ym.slice(0,4))))].sort();
+  const optMes=sel=>anos.map(a=>MESES_C.map((m,i)=>{ const ym=a+'-'+String(i+1).padStart(2,'0'); return `<option value="${ym}" ${ym===sel?'selected':''}>${ymLabel(ym)}</option>`; }).join('')).join('');
+  const linhas=()=>P.map((x,i)=>`<tr class="${x.ym===foco?'ec-foco':''}"><td class="note">${i+1}/${P.length}</td><td><select data-ecm="${i}">${optMes(x.ym)}</select>${x.ym===foco?' <span class="pill">esta fatura</span>':''}</td><td class="num"><input data-ecv="${i}" inputmode="decimal" value="${fmtNumBR(x.v)}" style="width:110px;text-align:right"></td><td><button class="btn small ghost" data-ecx="${i}" title="Tirar esta parcela">✕</button></td></tr>`).join('');
+  const tot=()=>sum(P,x=>x.v);
+  modal(`<button class="btn small x" data-close>✕</button><h2>Editar compra · ${esc(c.nome||'cartão')}</h2>
+    <p class="note">Mude só o que precisar: o valor de uma parcela não mexe nas outras. ${foco?`A parcela da fatura de <b>${ymLabel(foco)}</b> está destacada.`:''}</p>
+    <div class="frm ec-frm"><div class="fgrid ec-g">
+      ${field('Descrição',`<input id="ecDesc" value="${esc(p.desc||'')}">`,'span2')}
+      ${field('Data da compra',`<input id="ecData" type="date" value="${esc(p.data||'')}">`)}
+      ${field('Referente no cartão',`<input id="ecRef" list="dlEcRef" value="${esc(p.ref||'')}">`)}
+      ${field('Categoria',`<input id="ecCat" list="dlEcCat" value="${esc(p.cat||'')}">`)}
+      ${field('Subcategoria',`<input id="ecSub" list="dlEcSub" value="${esc(p.sub||'')}">`)}
+      ${field('Observação',`<input id="ecObs" value="${esc(p.obs||'')}">`,'span2')}
+    </div></div>
+    ${dl('dlEcRef',listas().refCartao||[])}${dl('dlEcCat',categorias())}${dl('dlEcSub',[...new Set(live('cats').map(x=>x.sub).filter(Boolean))])}
+    <h3 style="margin:14px 0 6px">Parcelas ${est?'<span class="pill">estorno (entra negativo)</span>':''}</h3>
+    <div class="twrap short"><table class="ec-t"><thead><tr><th>Nº</th><th>Fatura</th><th class="num">Valor</th><th></th></tr></thead><tbody id="ecTb">${linhas()}</tbody>
+      <tfoot><tr><td></td><td>Total da compra</td><td class="num" id="ecTot">${brl(tot())}</td><td></td></tr></tfoot></table></div>
+    <div class="fbtns" style="margin-top:8px"><button class="btn small" id="ecAdd">+ Parcela</button></div>
+    <div class="fbtns" style="margin-top:14px;flex-wrap:wrap"><button class="btn primary" id="ecOk">Salvar</button><button class="btn" data-close>Cancelar</button><span class="spacer"></span><button class="btn small ghost" id="ecForm" title="Refazer a compra pelo formulário (recalcula todas as parcelas)">Refazer pelo formulário</button><button class="btn small ghost" id="ecDel" style="color:var(--crit)">Excluir compra</button></div>`,
+  root=>{
+    const bind=()=>{ const tb=root.querySelector('#ecTb'); tb.innerHTML=linhas();
+      tb.querySelectorAll('[data-ecv]').forEach(inp=>{ inp.onfocus=()=>setTimeout(()=>{ try{inp.select();}catch(e){} },0); inp.onchange=()=>{ P[+inp.dataset.ecv].v=Math.round(numBR(inp.value)*100)/100; inp.value=fmtNumBR(P[+inp.dataset.ecv].v); root.querySelector('#ecTot').textContent=brl(tot()); }; });
+      tb.querySelectorAll('[data-ecm]').forEach(s=>s.onchange=()=>{ P[+s.dataset.ecm].ym=s.value; });
+      tb.querySelectorAll('[data-ecx]').forEach(b=>b.onclick=()=>{ if(P.length<=1){ toast('A compra precisa de ao menos uma parcela — para apagar, use Excluir compra'); return; } P.splice(+b.dataset.ecx,1); bind(); root.querySelector('#ecTot').textContent=brl(tot()); }); };
+    bind();
+    const f=root.querySelector(`[data-ecv]`); const fo=root.querySelector('.ec-foco [data-ecv]'); setTimeout(()=>{ const el=fo||null; if(el){ el.focus(); el.scrollIntoView({block:'nearest'}); } },60);
+    root.querySelector('#ecAdd').onclick=()=>{ const ult=P.length?P[P.length-1].ym:(foco||STATE.ano+'-01'); const [a,m]=ult.split('-').map(Number); const ym=m===12?(a+1)+'-01':a+'-'+String(m+1).padStart(2,'0'); P.push({ym,v:P.length?P[P.length-1].v:0}); bind(); root.querySelector('#ecTot').textContent=brl(tot()); };
+    root.querySelector('#ecForm').onclick=()=>{ closeModal(); editarCompraForm(id); };
+    root.querySelector('#ecDel').onclick=async()=>{ if(!confirm('Excluir esta compra e todas as parcelas?')) return; del('compras',id); live('carro').filter(a=>a.lanc===id).forEach(a=>del('carro',a.id)); closeModal(); await commit('Compra excluída'); };
+    root.querySelector('#ecOk').onclick=async()=>{
+      root.querySelectorAll('[data-ecv]').forEach(inp=>{ P[+inp.dataset.ecv].v=Math.round(numBR(inp.value)*100)/100; });
+      const yms=P.map(x=>x.ym); if(new Set(yms).size!==yms.length){ toast('Há duas parcelas na mesma fatura — junte ou mude o mês'); return; }
+      if(P.some(x=>!(x.v>0))){ toast('Toda parcela precisa de valor maior que zero (ou tire a parcela)'); return; }
+      const desc=root.querySelector('#ecDesc').value.trim(); if(!desc){ toast('Falta a descrição'); return; }
+      const parc={}; P.slice().sort((a,b)=>a.ym.localeCompare(b.ym)).forEach(x=>parc[x.ym]=est?-x.v:x.v);
+      const totV=Math.round(tot()*100)/100;
+      const rec=Object.assign({},p,{desc, data:root.querySelector('#ecData').value||p.data, ref:root.querySelector('#ecRef').value.trim(), cat:root.querySelector('#ecCat').value.trim(), sub:root.querySelector('#ecSub').value.trim(), obs:root.querySelector('#ecObs').value.trim(), parc, n:P.length, valor:est?-totV:totV,
+        forma: est?'Estorno':(p.forma==='Recorrente'?'Recorrente':(P.length>1?'Parcelado':'À Vista'))});
+      put('compras',rec); garantirCat(rec.cat,rec.sub); garantirLista('refCartao',rec.ref);
+      closeModal(); await commit('Compra atualizada ✓');
+    };
+  });
+}
 
 </script>
 </body>
